@@ -4,14 +4,12 @@ import OpenAI from 'openai';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 
-// 1.  初始化 OpenAI 客户端 (指向 DashScope)
-const API_KEY = process.env.DASHSCOPE_API_KEY;
-const openai = new OpenAI({
-  apiKey: API_KEY,
-  baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-});
+// 1. (修复) 
+//    不要在这里初始化客户端！
+// const openai = new OpenAI({ ... });
 
-// 2. (关键) 实体提取 Prompt
+// 2. (修复) 
+//    这个 Prompt 可以保留在顶层，它只是一个字符串
 const SYSTEM_PROMPT = `
 你是一个记账助手。
 根据用户的输入（例如：“晚餐花了3000日元”或“打车 50 块钱”），你必须只返回一个符合以下 TypeScript 接口的 JSON 对象。
@@ -23,28 +21,40 @@ interface IExpense {
   currency: string; // 货币, 例如 "CNY", "JPY", "USD"。如果是 "元" 或 "块", 默认为 "CNY"。
 }
 
-// 示例:
-// User: "买了杯咖啡 35 元"
-// Assistant: {"item": "咖啡", "amount": 35, "currency": "CNY"}
-// User: "shibuya sky 门票 1800 jpy"
-// Assistant: {"item": "Shibuya Sky 门票", "amount": 1800, "currency": "JPY"}
+// ... (示例)
 
 // 再次强调：只返回 JSON 对象。
 `;
 
 export async function POST(request: Request) {
+  // 3. (修复) 
+  //    在这里（函数内部）惰性初始化 OpenAI 客户端
+  //    只有当这个 API 被调用时，这段代码才会运行
+  const API_KEY = process.env.DASHSCOPE_API_KEY;
+  if (!API_KEY) {
+    return NextResponse.json(
+      { error: 'DASHSCOPE_API_KEY is not set' },
+      { status: 500 }
+    );
+  }
+  
+  const openai = new OpenAI({
+    apiKey: API_KEY,
+    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  });
+
   const cookieStore = cookies();
   const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
   try {
-    // 3.  身份验证
+    // 身份验证
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const user_id = session.user.id;
 
-    // 4.  获取前端传来的 语音文本 和 计划ID
+    // 获取前端传来的 语音文本 和 计划ID
     const { text, plan_id } = await request.json();
     if (!text || !plan_id) {
       return NextResponse.json(
@@ -53,9 +63,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // 5.  调用 LLM 提取实体
+    // 调用 LLM 提取实体
     const completion = await openai.chat.completions.create({
-      model: 'qwen-turbo', //  使用更便宜的 turbo 模型
+      model: 'qwen-turbo', // 使用更便宜的 turbo 模型
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: text },
@@ -65,11 +75,11 @@ export async function POST(request: Request) {
     const messageContent = completion.choices[0].message.content;
     if (!messageContent) { throw new Error('Empty response from AI'); }
     
-    // 6.  清理并解析 JSON
+    // 清理并解析 JSON
     const jsonResponse = messageContent.replace(/```json\n?|\n?```/g, '').trim();
     const { item, amount, currency } = JSON.parse(jsonResponse);
 
-    // 7.  存入数据库
+    // 存入数据库
     const { error: insertError } = await supabase.from('expenses').insert({
       user_id: user_id,
       plan_id: plan_id,

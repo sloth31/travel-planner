@@ -1,0 +1,16 @@
+# 忽略所有本地依赖
+node_modules
+
+# 忽略本地构建产物 (我们要在容器里重新构建)
+.next
+
+# 忽略 Git 历史
+.git
+
+.env.local
+.env.*.local
+
+
+Dockerfile
+README.md
+.dockerignore

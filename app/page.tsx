@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+// 1. (修复) 导入 auth-helpers
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs' 
 import { Button } from '@/components/ui/button'
 import type { User } from '@supabase/supabase-js' 
@@ -12,12 +13,16 @@ export default function Home() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   
-  // 2. 在组件内部创建 "Cookie 感知" 的客户端
-  const supabase = createClientComponentClient()
+  // 2. (修复) 
+  //    不要在这里（顶层）创建客户端
+  // const supabase = createClientComponentClient()
 
   useEffect(() => {
-    // 3.  使用新的客户端检查 Session
-    // (它会先检查 Cookie，再检查 localStorage)
+    // 3. (修复) 
+    //    在 useEffect 内部创建客户端，这里只会在浏览器中运行
+    const supabase = createClientComponentClient()
+    
+    // 检查 Session
     const checkUser = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setUser(user)
@@ -26,7 +31,7 @@ export default function Home() {
 
     checkUser()
 
-    // 4. 监听器现在也会与 Cookie 同步
+    // 监听器
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         setUser(session?.user ?? null)
@@ -37,16 +42,18 @@ export default function Home() {
     return () => {
       authListener?.subscription.unsubscribe()
     }
-  }, [supabase]) //  把 supabase 加入依赖数组
+  }, []) // 依赖项为空，只运行一次
 
   // 登出函数
   const handleLogout = async () => {
+    // 4. (修复) 
+    //    在事件处理器内部创建客户端
+    const supabase = createClientComponentClient()
+    
     await supabase.auth.signOut()
     setUser(null)
-    // 登出后也需要刷新，以清除服务端的 Cookie 认知
     window.location.reload() // 登出时重载页面
   }
-
 
   // 加载中...
   if (loading) {
@@ -57,11 +64,11 @@ export default function Home() {
     )
   }
 
-  // 2. 主 UI 渲染
+  // 主 UI 渲染
   return (
     <main className="min-h-screen p-8 md:p-12">
       {user ? (
-        // ... (已登录视图，包含 <Planner />) ...
+        // 已登录视图
         <div className="max-w-3xl mx-auto">
           <header className="flex flex-col sm:flex-row justify-between sm:items-center mb-8 gap-4">
             <h1 className="text-3xl font-bold">AI 旅行规划师</h1>
@@ -80,7 +87,7 @@ export default function Home() {
           <Planner />
         </div>
       ) : (
-        // ... (未登录视图，保持不变) ...
+        // 未登录视图
         <div className="flex flex-col items-center justify-center pt-24 text-center">
           <h1 className="text-4xl font-bold mb-8">AI 旅行规划师</h1>
           <p className="mb-4 text-lg text-muted-foreground">

@@ -3,7 +3,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-// 1. (Fix) 导入 auth-helpers 提供的客户端组件创建器
+// 1. (修复) 导入 auth-helpers
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs' 
 import { Button } from '@/components/ui/button'
 import {
@@ -22,11 +22,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const router = useRouter()
   
-  // 2. (Fix) 在组件内部创建 "Cookie 感知" 的客户端
-  const supabase = createClientComponentClient()
+  // 2. (修复) 
+  //    不要在这里（顶层）创建客户端
+  // const supabase = createClientComponentClient()
 
-  // 3. (Fix) 更新 handleLogin 来正确处理 Cookie
+  // 处理登录
   const handleLogin = async () => {
+    // 3. (修复) 
+    //    在事件处理器内部创建客户端
+    const supabase = createClientComponentClient()
+    
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -35,31 +40,26 @@ export default function LoginPage() {
     if (error) {
       alert('登录失败: ' + error.message)
     } else {
-      // 登录成功, auth-helpers 会自动设置 Cookie
-      // 我们需要刷新页面来确保
-      // 1. 服务端组件能读到新 Cookie
-      // 2. 根 layout 能重新加载
       router.push('/')
-      router.refresh() // (关键) 强制服务器重新渲染
+      router.refresh() // 强制服务器重新渲染
       alert('登录成功!') 
     }
   }
 
-  // 4. (Fix) 更新 handleSignUp
+  // 处理注册
   const handleSignUp = async () => {
+    // 4. (修复) 
+    //    在事件处理器内部创建客户端
+    const supabase = createClientComponentClient()
+    
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      // (可选) 确保 Supabase 后台关闭了邮件验证
-      // options: {
-      //   emailRedirectTo: `${location.origin}/auth/callback`,
-      // },
     })
 
     if (error) {
       alert('注册失败: ' + error.message)
     } else {
-      // 注册成功, auth-helpers 也会设置 Cookie
       alert('注册成功！请现在登录。')
     }
   }
@@ -72,7 +72,6 @@ export default function LoginPage() {
           <CardDescription>登录或注册以继续</CardDescription>
         </CardHeader>
         <CardContent>
-          {/* ... 你的表单内容 (保持不变) ... */}
           <form onSubmit={(e) => e.preventDefault()}>
             <div className="grid w-full items-center gap-4">
               <div className="flex flex-col space-y-1.5">

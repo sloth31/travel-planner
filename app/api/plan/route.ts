@@ -4,12 +4,8 @@ import OpenAI from 'openai';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 
-// ... (OpenAI 客户端和 SYSTEM_PROMPT 保持不变) ...
-const API_KEY = process.env.DASHSCOPE_API_KEY;
-const openai = new OpenAI({
-  apiKey: API_KEY,
-  baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-});
+// 1. (修复) 
+//    Prompt 字符串可以保留在顶层
 const SYSTEM_PROMPT = `
 你是一个专业的旅行规划师。
 根据用户的请求（目的地、天数、预算、偏好等），你必须只返回一个符合以下 TypeScript 接口的 JSON 对象，不要有任何其他解释或开场白。
@@ -44,6 +40,21 @@ interface IPlan {
 `;
 
 export async function POST(request: Request) {
+  // 2. (修复) 
+  //    在这里（函数内部）惰性初始化 OpenAI 客户端
+  const API_KEY = process.env.DASHSCOPE_API_KEY;
+  if (!API_KEY) {
+    return NextResponse.json(
+      { error: 'DASHSCOPE_API_KEY is not set' },
+      { status: 500 }
+    );
+  }
+
+  const openai = new OpenAI({
+    apiKey: API_KEY,
+    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  });
+
   const cookieStore = cookies();
   const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
@@ -57,10 +68,13 @@ export async function POST(request: Request) {
 
     const { prompt } = await request.json();
     if (!prompt) {
-      return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'Prompt is required' },
+        { status: 400 }
+      );
     }
 
-    // ... (调用 OpenAI/DashScope 的逻辑保持不变) ...
+    // 调用 OpenAI/DashScope
     const completion = await openai.chat.completions.create({
       model: 'qwen-plus',
       messages: [
@@ -74,8 +88,7 @@ export async function POST(request: Request) {
     const jsonResponse = messageContent.replace(/```json\n?|\n?```/g, '').trim();
     const planData = JSON.parse(jsonResponse);
 
-    // 5. (Change!) 
-    // 将 AI 结果存入数据库，并立即取回新生成的 'id'
+    // 将 AI 结果存入数据库
     const { data: newPlan, error: insertError } = await supabase
       .from('plans')
       .insert({
@@ -84,8 +97,8 @@ export async function POST(request: Request) {
         original_prompt: prompt,
         plan_data: planData,
       })
-      .select('id') // <-- (关键) 告诉 Supabase 返回 'id'
-      .single();     // <-- (关键) 因为我们知道只插入了一行
+      .select('id') // 返回 'id'
+      .single();
 
     if (insertError) {
       console.error('Supabase insert error:', insertError);
@@ -102,7 +115,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // 6. (Change!) 
     // 将 AI 数据和新 'id' 一起返回给前端
     return NextResponse.json({ ...planData, id: newPlan.id });
 

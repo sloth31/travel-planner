@@ -11,10 +11,13 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
  */
 export function PlanSubscriber({ planId }: { planId: string }) {
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  
 
   useEffect(() => {
-    // --- (DEBUG) ---
+    // (修复) 
+    // 只在 useEffect 内部（即客户端）创建客户端
+    const supabase = createClientComponentClient();
+    
     console.log(`[Realtime] PlanSubscriber mounting for planId: ${planId}`);
 
     // (修复) 统一定义一个刷新处理器
@@ -42,9 +45,6 @@ export function PlanSubscriber({ planId }: { planId: string }) {
           filter: `id=eq=${planId}`, // 只监听这个 plan_id
         },
         (payload) => {
-          // (语法修复) 
-          // 错误的： console.log('[Realtime] 'plans' table updated!');
-          // 正确的：
           console.log('[Realtime] "plans" table updated!');
           handleRefresh(payload); // 收到事件后调用刷新
         }
@@ -60,9 +60,6 @@ export function PlanSubscriber({ planId }: { planId: string }) {
           filter: `plan_id=eq=${planId}`, // 只监听这个 plan_id 的开销
         },
         (payload) => {
-          // (语法修复)
-          // F错误的： console.log('[Realtime] 'expenses' table changed!');
-          // 正确的：
           console.log('[Realtime] "expenses" table changed!');
           handleRefresh(payload); // 收到事件后也调用刷新
         }
@@ -83,7 +80,11 @@ export function PlanSubscriber({ planId }: { planId: string }) {
       console.log(`[Realtime] Unsubscribing from channel: ${channelName}`);
       supabase.removeChannel(channel);
     };
-  }, [supabase, planId, router]); // 依赖项
+    
+    // (修复) 
+    // 由于 supabase 是在 effect 内部创建的，
+    // 它不再是外部依赖。
+  }, [planId, router]); // 依赖项
 
   // 这个组件不渲染任何 UI
   return null;

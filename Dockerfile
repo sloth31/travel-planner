@@ -1,0 +1,39 @@
+FROM node:20-alpine AS builder
+
+ARG NEXT_PUBLIC_SUPABASE_URL
+ARG NEXT_PUBLIC_SUPABASE_ANON_KEY
+ARG DASHSCOPE_API_KEY
+ARG NEXT_PUBLIC_AMAP_KEY
+ARG NEXT_PUBLIC_AMAP_SECURITY_CODE
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm install
+COPY . .
+
+ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
+ENV DASHSCOPE_API_KEY=$DASHSCOPE_API_KEY
+ENV NEXT_PUBLIC_AMAP_KEY=$NEXT_PUBLIC_AMAP_KEY
+ENV NEXT_PUBLIC_AMAP_SECURITY_CODE=$NEXT_PUBLIC_AMAP_SECURITY_CODE
+
+RUN echo "--- [DEBUG] ---"
+RUN echo "Build-Time SUPABASE_URL: $NEXT_PUBLIC_SUPABASE_URL"
+RUN echo "Build-Time SUPABASE_ANON_KEY: $NEXT_PUBLIC_SUPABASE_ANON_KEY"
+RUN echo "Build-Time AMAP_SECURITY_CODE: $NEXT_PUBLIC_AMAP_SECURITY_CODE"
+RUN echo "Build-Time AMAP_KEY: $NEXT_PUBLIC_AMAP_KEY"
+RUN echo "DASHSCOPE_API_KEY: $DASHSCOPE_API_KEY"
+RUN echo "--- [DEBUG] ---"
+
+RUN npm run build
+
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN npm install --production
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/next.config.mjs ./next.config.mjs
+EXPOSE 3000
+CMD ["npm", "run", "start"]
