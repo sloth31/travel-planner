@@ -1,0 +1,41 @@
+# 文件: .github/workflows/docker.yml
+
+name: Build and Push Docker Image to Aliyun
+
+on:
+  push:
+    branches:
+      - "main"
+
+env:
+  IMAGE_NAME: ai-travel-planner 
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest 
+
+    steps:
+      # 步骤 1: 检出代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Aliyun Docker Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ALIYUN_DOCKER_REGISTRY }} # "registry.cn-hangzhou.aliyuncs.com"
+          username: ${{ secrets.ALIYUN_DOCKER_USERNAME }}
+          password: ${{ secrets.ALIYUN_DOCKER_PASSWORD }}
+
+      # 步骤 3: (关键) 构建并推送 Docker 镜像
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: . # 使用当前目录作为构建上下文
+          push: true # 确认推送
+          
+          tags: ${{ secrets.ALIYUN_DOCKER_REGISTRY }}/${{ secrets.ALIYUN_DOCKER_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
+          build-args: |
+            NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+            NEXT_PUBLIC_AMAP_KEY=${{ secrets.NEXT_PUBLIC_AMAP_KEY }}
+            NEXT_PUBLIC_AMAP_SECURITY_CODE=${{ secrets.NEXT_PUBLIC_AMAP_SECURITY_CODE }}
