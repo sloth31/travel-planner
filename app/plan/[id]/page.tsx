@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PlanSubscriber } from '@/components/PlanSubscriber';
 
 // (修复) 动态导入 PlanMap，禁用 SSR
 const DynamicPlanMap = dynamic(
@@ -151,7 +152,8 @@ export default async function PlanDetailPage({ params }: { params: { id: string 
 
   // 8.  渲染 UI
   return (
-    <div className="max-w-4xl mx-auto p-8 md:p-12 space-y-8">
+     <div className="max-w-4xl mx-auto p-8 md:p-12 space-y-8">
+        <PlanSubscriber planId={plan.id} />
       {/*  Header 部分 */}
       <header>
         <Button asChild variant="outline" size="sm" className="mb-4">
