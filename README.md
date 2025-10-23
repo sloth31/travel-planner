@@ -1,4 +1,4 @@
-# AI 旅行规划师 (AI Travel Planner)
+# AI Travel Planner
 
 ## 核心功能
 
