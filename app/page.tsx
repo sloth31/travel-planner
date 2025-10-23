@@ -1,65 +1,96 @@
-import Image from "next/image";
+// 文件: app/page.tsx
+'use client' // 必须是客户端组件
+
+import { useState, useEffect } from 'react'
+import Link from 'next/link'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs' 
+import { Button } from '@/components/ui/button'
+import type { User } from '@supabase/supabase-js' 
+import { Planner } from '@/components/Planner';
 
 export default function Home() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+  const [user, setUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
+  
+  // 2. 在组件内部创建 "Cookie 感知" 的客户端
+  const supabase = createClientComponentClient()
+
+  useEffect(() => {
+    // 3.  使用新的客户端检查 Session
+    // (它会先检查 Cookie，再检查 localStorage)
+    const checkUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      setUser(user)
+      setLoading(false)
+    }
+
+    checkUser()
+
+    // 4. 监听器现在也会与 Cookie 同步
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        setUser(session?.user ?? null)
+        setLoading(false)
+      }
+    )
+
+    return () => {
+      authListener?.subscription.unsubscribe()
+    }
+  }, [supabase]) //  把 supabase 加入依赖数组
+
+  // 登出函数
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    setUser(null)
+    // 登出后也需要刷新，以清除服务端的 Cookie 认知
+    window.location.reload() // 登出时重载页面
+  }
+
+
+  // 加载中...
+  if (loading) {
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center p-24">
+        <p>加载中...</p>
       </main>
-    </div>
-  );
+    )
+  }
+
+  // 2. 主 UI 渲染
+  return (
+    <main className="min-h-screen p-8 md:p-12">
+      {user ? (
+        // ... (已登录视图，包含 <Planner />) ...
+        <div className="max-w-3xl mx-auto">
+          <header className="flex flex-col sm:flex-row justify-between sm:items-center mb-8 gap-4">
+            <h1 className="text-3xl font-bold">AI 旅行规划师</h1>
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-muted-foreground truncate" title={user.email}>
+                {user.email}
+              </span>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/my-plans">我的行程</Link>
+              </Button>
+              <Button onClick={handleLogout} variant="outline" size="sm">
+                登出
+              </Button>
+            </div>
+          </header>
+          <Planner />
+        </div>
+      ) : (
+        // ... (未登录视图，保持不变) ...
+        <div className="flex flex-col items-center justify-center pt-24 text-center">
+          <h1 className="text-4xl font-bold mb-8">AI 旅行规划师</h1>
+          <p className="mb-4 text-lg text-muted-foreground">
+            请登录以保存和规划你的行程
+          </p>
+          <Button asChild size="lg">
+            <Link href="/login">前往登录 / 注册</Link>
+          </Button>
+        </div>
+      )}
+    </main>
+  )
 }
