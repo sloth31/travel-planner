@@ -75,7 +75,10 @@ export default function Home() {
             <div className="flex items-center gap-4">
               <span className="text-sm text-muted-foreground truncate" title={user.email}>
                 {user.email}
-              </span>
+                    </span>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/profile">偏好设置</Link>
+              </Button>      
               <Button asChild variant="ghost" size="sm">
                 <Link href="/my-plans">我的行程</Link>
               </Button>
