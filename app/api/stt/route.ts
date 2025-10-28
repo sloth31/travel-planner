@@ -208,7 +208,10 @@ export async function POST(request: NextRequest) {
             orderId = uploadResponse.data.content.orderId; // 获取订单 ID
             console.log('Upload successful. Order ID:', orderId);
 
-            // --- (新!) 开始轮询获取结果 (使用 GET) ---
+            if (!orderId) {
+                // 理论上不可能到这里，但为了类型安全和健壮性
+                throw new Error("Upload succeeded but orderId is missing in response.");
+            }
             console.log('Starting polling for result (V2 Simplified)...');
             const recognizedText = await pollForResultV2(orderId, currentAppId, currentApiSecret);
             if (recognizedText !== null) {
