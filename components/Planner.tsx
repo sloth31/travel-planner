@@ -1,7 +1,7 @@
 // 文件: components/Planner.tsx
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -15,13 +15,13 @@ export function Planner() {
   const router = useRouter();
   const [prompt, setPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false); // 用于生成行程的 Loading
-  const [isRecording, setIsRecording] = useState(false); // 录音状态
-  const [isProcessingSTT, setIsProcessingSTT] = useState(false); // STT 处理状态
+  const [sttStatus, setSttStatus] = useState<'idle' | 'recording' | 'processing_stt'>('idle');
   const [error, setError] = useState<string | null>(null);
 
   // 用于 MediaRecorder
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]); // 存储音频数据块
+  const streamRef = useRef<MediaStream | null>(null);
 
   // --- 核心函数 1: 提交行程规划请求 (保持不变) ---
   const handleSubmit = async (e: React.FormEvent) => {
@@ -60,163 +60,188 @@ export function Planner() {
 
   // --- 核心函数 2: 发送音频到后端 STT API ---
   // (与 ExpenseLogger 基本相同，但成功回调不同)
-  const sendAudioToBackend = async (audioBlob: Blob) => {
-    setIsProcessingSTT(true); // 开始调用 STT API
-    setError(null);
+const sendAudioToBackend = useCallback(async (audioBlob: Blob) => {
+        console.log("Sending audio blob to /api/stt, size:", audioBlob.size, "type:", audioBlob.type);
+        setSttStatus('processing_stt'); // 开始调用 STT API
+        setError(null);
 
-    const formData = new FormData();
-    formData.append('audio', audioBlob, 'recording.wav');
+        const formData = new FormData();
+        formData.append('audio', audioBlob, `recording.${audioBlob.type.split('/')[1] || 'webm'}`);
 
-    try {
-      const response = await fetch('/api/stt', {
-        method: 'POST',
-        body: formData,
-      });
+        try {
+            const response = await fetch('/api/stt', {
+                method: 'POST',
+                body: formData,
+            });
 
-      if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || '语音识别请求失败');
-      }
+            if (!response.ok) {
+                const errData = await response.json();
+                console.error("STT API Error Response:", errData);
+                throw new Error(errData.error || '语音识别请求失败');
+            }
 
-      const result = await response.json();
-      if (result.text) {
-        // (关键区别) 识别成功，将文本填充到输入框
-        setPrompt(result.text);
-      } else {
-        throw new Error(result.error || '未识别到文本');
-      }
+            const result = await response.json();
+            if (result.text && result.text.trim() !== "" && result.text !== "未识别到内容") {
+                setPrompt(result.text); // 识别成功，设置到 prompt
+                console.log("STT recognized text:", result.text);
+            } else {
+                 console.warn("STT returned empty or 'not recognized' result:", result.text);
+                 // (修复!) 不设置 prompt，而是显示错误
+                 setError("无法识别语音内容，请重试或手动输入。");
+            }
 
-    } catch (err: any) {
-      setError(err.message || '语音识别过程中出错');
-    } finally {
-      setIsProcessingSTT(false); // STT API 调用结束
-    }
-  };
+        } catch (err: any) {
+            console.error("Error sending audio or processing STT response:", err);
+            setError(err.message || '语音识别过程中出错');
+        } finally {
+            setSttStatus('idle'); // STT API 调用结束
+        }
+    }, []); // 空依赖
 
 
   // --- MediaRecorder 录音控制 (与 ExpenseLogger 相同) ---
-  const startRecording = async () => {
-    setError(null);
-
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setError('浏览器不支持录音功能');
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const options = { mimeType: 'audio/wav; codecs=MS_PCM' };
-      let recorder: MediaRecorder;
-      try {
-         recorder = new MediaRecorder(stream, options);
-      } catch (e) {
-         console.warn("WAV mimeType not supported, trying default.");
-         recorder = new MediaRecorder(stream);
-      }
-
-      mediaRecorderRef.current = recorder;
-      audioChunksRef.current = [];
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
+const startRecording = useCallback(async () => {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            setError('浏览器不支持录音功能'); setSttStatus('idle'); return;
         }
-      };
+        setSttStatus('recording');
+        setError(null);
+        audioChunksRef.current = [];
 
-      recorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/wav' });
-        sendAudioToBackend(audioBlob); // 发送给后端
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef.current = stream;
+            const options = { mimeType: 'audio/webm;codecs=opus' };
+            let recorder: MediaRecorder;
+            try {
+                 recorder = new MediaRecorder(stream, options);
+                 console.log("Using mimeType:", recorder.mimeType);
+            } catch (e) {
+                 console.warn("Requested mimeType not supported, trying default.");
+                 recorder = new MediaRecorder(stream);
+                 console.log("Using default mimeType:", recorder.mimeType);
+            }
+            mediaRecorderRef.current = recorder;
 
-        stream.getTracks().forEach(track => track.stop());
-      };
+            recorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunksRef.current.push(event.data);
+                }
+            };
 
-      recorder.start();
-      setIsRecording(true);
+            recorder.onstop = () => {
+                console.log("[DEBUG recorder.onstop] Triggered!");
+                if (audioChunksRef.current.length === 0) {
+                    console.warn("No audio chunks recorded.");
+                    setSttStatus('idle'); return;
+                }
+                const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+                sendAudioToBackend(audioBlob); // 发送给后端
 
-    } catch (err) {
-      console.error('获取麦克风权限或开始录音失败:', err);
-      setError('无法访问麦克风或开始录音，请检查权限。');
-      setIsRecording(false);
-    }
-  };
+                if (streamRef.current) {
+                     streamRef.current.getTracks().forEach(track => track.stop());
+                     streamRef.current = null;
+                     console.log("Stopped media stream tracks after recording stopped.");
+                }
+            };
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop(); // 触发 onstop
-      setIsRecording(false);
-      // isProcessingSTT 由 sendAudioToBackend 控制
-    }
-  };
+            recorder.start();
+            console.log("MediaRecorder started");
 
-  // 语音按钮点击处理
-  const handleMicClick = () => {
-    if (isRecording) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
-  };
+        } catch (err) {
+            console.error('获取麦克风权限或开始录音失败:', err); setError('无法访问麦克风或开始录音，请检查权限。'); setSttStatus('idle');
+        }
+    }, [sendAudioToBackend]); // 依赖 sendAudioToBackend
 
-  // 文本输入框变化处理 (保持不变)
-  const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setPrompt(e.target.value);
-  };
+    // 停止录音和媒体流
+    // (与 ExpenseLogger 完全相同)
+    const stopRecordingAndStream = useCallback(() => {
+        let stopped = false;
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+            console.log("[DEBUG stopRecordingAndStream] Calling mediaRecorder.stop()");
+            mediaRecorderRef.current.stop(); // 触发 onstop
+            stopped = true;
+        } else {
+            console.log("[DEBUG stopRecordingAndStream] MediaRecorder not recording or already stopped.");
+        }
+        if (stopped) { console.log("Requested MediaRecorder stop."); }
+    }, []);
 
+    // 语音按钮点击处理
+    // (与 ExpenseLogger 完全相同)
+    const handleMicClick = () => {
+        if (sttStatus === 'recording') {
+            console.log("[DEBUG handleMicClick] Stopping recording...");
+            stopRecordingAndStream(); // 请求停止录音 (会触发 onstop)
+        } else if (sttStatus === 'idle') {
+            console.log("[DEBUG handleMicClick] Starting recording...");
+            startRecording(); // 开始录音过程
+        } else {
+            console.log("[DEBUG handleMicClick] Clicked in status:", sttStatus, "- Action ignored.");
+        }
+    };
 
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>AI Travel Planner</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* 输入区域 */}
-            <div className="relative">
-              <Textarea
-                placeholder="例如：“我想去上海，3天，预算 3000 元” 或点击麦克风说话"
-                value={prompt}
-                onChange={handlePromptChange}
-                rows={3}
-                className="pr-12" // 为麦克风留出空间
-                disabled={isRecording || isProcessingSTT || isLoading} // 禁用条件
-              />
-              {/* 麦克风按钮 */}
-              <Button
-                type="button"
-                variant={isRecording ? 'destructive' : 'ghost'} // 调整 variant
-                size="icon"
-                className="absolute right-2 top-1/2 -translate-y-1/2"
-                onClick={handleMicClick}
-                disabled={isProcessingSTT || isLoading} // 处理时禁用
-                title={isRecording ? "停止录音" : "开始录音"} // 添加 title
-              >
-                <Mic className="h-5 w-5" />
-              </Button>
-            </div>
-            
-            {/* 提交按钮 */}
-            <Button 
-              type="submit" 
-              disabled={isLoading || isRecording || isProcessingSTT || !prompt.trim()} // 增加禁用条件
-            >
-              {isLoading ? '正在生成中...' : '生成行程'}
-            </Button>
-          </form>
-          
-          {/* STT 处理状态提示 */}
-          {isProcessingSTT && <p className="text-sm text-muted-foreground mt-2">正在识别语音...</p>}
+    // 文本输入框变化处理 (保持不变)
+    const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => { setPrompt(e.target.value); };
 
-        </CardContent>
-      </Card>
+    // 清理 Effect
+    // (与 ExpenseLogger 完全相同)
+    useEffect(() => {
+        return () => {
+            console.log("[DEBUG useEffect Cleanup - Planner] Component unmounting...");
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+                mediaRecorderRef.current.stop();
+            }
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, []);
 
-      {/* 错误提示 */}
-      {error && (
-        <Alert variant="destructive">
-          <AlertTitle>错误</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+return (
+        <div className="space-y-6">
+            <Card>
+                <CardHeader><CardTitle>AI Travel Planner</CardTitle></CardHeader>
+                <CardContent>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div className="relative">
+                            <Textarea
+                                placeholder="例如：“我想去上海，3天，预算 3000 元” 或点击麦克风说话"
+                                value={prompt}
+                                onChange={handlePromptChange}
+                                rows={3}
+                                className="pr-12"
+                                // 录音或 STT 处理时禁用
+                                disabled={sttStatus === 'recording' || sttStatus === 'processing_stt' || isLoading}
+                            />
+                            <Button
+                                type="button"
+                                variant={sttStatus === 'recording' ? 'destructive' : 'ghost'}
+                                size="icon"
+                                className="absolute right-2 top-1/2 -translate-y-1/2"
+                                onClick={handleMicClick}
+                                // STT 处理或生成行程时禁用
+                                disabled={sttStatus === 'processing_stt' || isLoading}
+                                title={sttStatus === 'recording' ? "停止录音" : "开始录音"}
+                            >
+                                <Mic className="h-5 w-5" />
+                            </Button>
+                        </div>
+
+                        <Button
+                            type="submit"
+                            // 录音、STT 处理、生成行程 或 prompt 为空时禁用
+                            disabled={isLoading || sttStatus === 'recording' || sttStatus === 'processing_stt' || !prompt.trim()}
+                        >
+                            {isLoading ? '正在生成中...' : '生成行程'}
+                        </Button>
+                    </form>
+
+                    {sttStatus === 'processing_stt' && <p className="text-sm text-muted-foreground mt-2">正在识别语音...</p>}
+                </CardContent>
+            </Card>
+
+           {error && (<Alert variant="destructive"><AlertTitle>错误</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>)}
 
       {/* 生成行程的 Loading 状态 (保持不变) */}
       {isLoading && (
