@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { ProfileForm } from '@/components/ProfileForm'; // (稍后创建) 导入表单组件
+import { ArrowLeft } from 'lucide-react';
 
 // (复用) 定义偏好类型
 interface UserPreferences {
@@ -27,12 +28,17 @@ export default async function ProfilePage() {
     const currentPreferences = (user.user_metadata?.preferences as UserPreferences) || {}; // 获取当前偏好，不存在则为空对象
 
     // 2. 渲染页面结构
-    return (
-        <div className="max-w-2xl mx-auto p-8 md:p-12 space-y-6"> {/* 调整最大宽度 */}
-            <header className="flex justify-between items-center">
+return (
+        <div className="max-w-2xl mx-auto p-8 md:p-12 space-y-6">
+            {/* --- (美化 Header) --- */}
+            <header className="flex justify-between items-center mb-4"> {/* 减小下边距 */}
                 <h1 className="text-3xl font-bold">个人偏好设置</h1>
-                <Button asChild variant="outline">
-                    <Link href="/">返回主页</Link>
+                {/* 返回按钮 (带图标) */}
+                <Button asChild variant="outline" size="sm">
+                    <Link href="/">
+                        <ArrowLeft className="h-4 w-4 mr-1" /> {/* 图标 */}
+                        返回主页
+                    </Link>
                 </Button>
             </header>
 

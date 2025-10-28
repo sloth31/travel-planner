@@ -8,18 +8,15 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 import { Button } from '@/components/ui/button'
 import type { User } from '@supabase/supabase-js' 
 import { Planner } from '@/components/Planner';
+// (新!) 导入图标
+import { Settings, List, LogOut } from 'lucide-react';
 
 export default function Home() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   
-  // 2. (修复) 
-  //    不要在这里（顶层）创建客户端
-  // const supabase = createClientComponentClient()
 
   useEffect(() => {
-    // 3. (修复) 
-    //    在 useEffect 内部创建客户端，这里只会在浏览器中运行
     const supabase = createClientComponentClient()
     
     // 检查 Session
@@ -77,13 +74,20 @@ export default function Home() {
                 {user.email}
                     </span>
               <Button asChild variant="ghost" size="sm">
-                <Link href="/profile">偏好设置</Link>
-              </Button>      
+                <Link href="/profile" title="偏好设置"> {/* 添加 title */}
+                  <Settings className="h-4 w-4 mr-1" /> {/* 图标 */}
+                  <span className="hidden sm:inline">偏好</span> {/* 小屏幕隐藏文字 */}
+                </Link>
+              </Button>    
               <Button asChild variant="ghost" size="sm">
-                <Link href="/my-plans">我的行程</Link>
+                <Link href="/my-plans" title="我的行程"> {/* 添加 title */}
+                  <List className="h-4 w-4 mr-1" /> {/* 图标 */}
+                   <span className="hidden sm:inline">行程</span> {/* 小屏幕隐藏文字 */}
+                </Link>
               </Button>
-              <Button onClick={handleLogout} variant="outline" size="sm">
-                登出
+              <Button onClick={handleLogout} variant="outline" size="sm" title="登出"> {/* 添加 title */}
+                 <LogOut className="h-4 w-4 mr-1" /> {/* 图标 */}
+                 <span className="hidden sm:inline">登出</span> {/* 小屏幕隐藏文字 */}
               </Button>
             </div>
           </header>

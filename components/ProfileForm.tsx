@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Palette, Utensils, Car } from 'lucide-react';
 
 // (复用) 定义偏好类型
 interface UserPreferences {
@@ -156,7 +157,7 @@ export function ProfileForm({ initialPreferences }: ProfileFormProps) {
     };
 
 
-    return (
+return (
         <Card>
             <CardHeader>
                 <CardTitle>选择您的偏好</CardTitle>
@@ -164,25 +165,35 @@ export function ProfileForm({ initialPreferences }: ProfileFormProps) {
             </CardHeader>
             <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-6">
-                    {/* 旅行风格 */}
+           
                     <div>
-                        <Label className="text-base font-medium">旅行风格</Label>
+                        <Label className="text-base font-medium flex items-center mb-2"> {/* 使用 Flex 对齐图标和文字 */}
+                            <Palette className="h-5 w-5 mr-2 text-primary" /> {/* 图标 */}
+                            旅行风格
+                        </Label>
                         {renderCheckboxGroup('styles', selectedStyles)}
                     </div>
 
-                    {/* 餐饮偏好 */}
+      
                     <div>
-                        <Label className="text-base font-medium">餐饮偏好</Label>
+                        <Label className="text-base font-medium flex items-center mb-2">
+                            <Utensils className="h-5 w-5 mr-2 text-primary" /> {/* 图标 */}
+                            餐饮偏好
+                        </Label>
                         {renderCheckboxGroup('cuisines', selectedCuisines)}
                     </div>
 
-                    {/* 交通偏好 */}
+          
                     <div>
-                        <Label className="text-base font-medium">交通偏好</Label>
+                        <Label className="text-base font-medium flex items-center mb-2">
+                            <Car className="h-5 w-5 mr-2 text-primary" /> {/* 图标 */}
+                            交通偏好
+                        </Label>
                         {renderCheckboxGroup('transport', selectedTransport)}
                     </div>
+           
 
-                    {/* 提交按钮 */}
+                    {/* 提交按钮 (保持不变) */}
                     <div className="flex justify-end">
                         <Button type="submit" disabled={isLoading}>
                             {isLoading ? '保存中...' : '保存偏好'}
