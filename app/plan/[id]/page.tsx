@@ -6,14 +6,7 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import dynamic from 'next/dynamic'; // 导入 dynamic
 import { ExpenseLogger } from '@/components/ExpenseLogger';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { ExpenseTable } from '@/components/ExpenseTable'; // (新!) 导入 ExpenseTable
 import { PlanSubscriber } from '@/components/PlanSubscriber';
 
 // (修复) 动态导入 PlanMap，禁用 SSR
@@ -187,39 +180,8 @@ export default async function PlanDetailPage({ params }: { params: { id: string 
           <p className="text-lg font-medium">
             总计: {totalSummary || '0.00'}
           </p>
+          <ExpenseTable expenses={expenses} planId={plan.id} />
           
-          <div className="border rounded-lg max-h-96 overflow-y-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>事项</TableHead>
-                  <TableHead>金额</TableHead>
-                  <TableHead>时间</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {expenses.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={3} className="text-center">
-                      暂无开销记录
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  expenses.map((expense) => (
-                    <TableRow key={expense.id}>
-                      <TableCell>{expense.item}</TableCell>
-                      <TableCell>{expense.amount} {expense.currency}</TableCell>
-                      <TableCell>
-                        {new Date(expense.created_at).toLocaleString('zh-CN', {
-                           hour: '2-digit', minute: '2-digit' 
-                        })}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
         </div>
       </div>
 
