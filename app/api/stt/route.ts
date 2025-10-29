@@ -61,8 +61,17 @@ function getRobustSentenceFromSpeechJson(jsonString: string) {
       .join('');
 
   } catch (error) {
+     let errorMessage = "未知解析错误";
+  
+  if (error instanceof Error) {
+    // 如果是标准的 Error 对象，则提取其 message
+    errorMessage = error.message;
+  } else if (typeof error === 'string') {
+    // 如果是字符串，则直接使用
+    errorMessage = error;
+  }
     // 捕获最外层的 JSON.parse(jsonString) 失败
-    console.error("解析语音JSON失败 (最外层):", error.message, "Payload:", jsonString);
+    console.error("解析语音JSON失败 (最外层):", errorMessage, "Payload:", jsonString);
     return ""; // 失败时返回空字符串
   }
 }
