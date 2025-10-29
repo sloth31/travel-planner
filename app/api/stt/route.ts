@@ -28,6 +28,91 @@ function generateSigna(appId: string, ts: string, apiSecret: string): string {
     const signa = crypto.createHmac('sha1', apiSecret).update(md5Hash).digest('base64');
     return signa;
 }
+/**
+ * 健壮的语音识别 JSON 解析函数
+ * (已集成到您的主逻辑中)
+ *
+ * @param {string} jsonString - 语音识别服务返回的原始 JSON 字符串。
+ * @returns {string} - 拼接后的完整句子。
+ */
+function getRobustSentenceFromSpeechJson(jsonString: string) {
+  let allWords = [];
+
+  try {
+    const data = JSON.parse(jsonString);
+
+    // 优先尝试 lattice2 (未顺滑, 结构化JSON)
+    const lattice2 = data.lattice2;
+    if (lattice2 && Array.isArray(lattice2) && lattice2.length > 0) {
+      allWords = extractWords(lattice2, false);
+    }
+    
+    // 如果 lattice2 没有结果，则回退到 lattice (顺滑, 字符串JSON)
+    if (allWords.length === 0) {
+      const lattice = data.lattice;
+      if (lattice && Array.isArray(lattice) && lattice.length > 0) {
+        allWords = extractWords(lattice, true); // true 表示 json_1best 是字符串
+      }
+    }
+
+    // 最终过滤并拼接
+    return allWords
+      .filter(word => word) // 过滤掉 null, undefined, 和 "" (空字符串)
+      .join('');
+
+  } catch (error) {
+    // 捕获最外层的 JSON.parse(jsonString) 失败
+    console.error("解析语音JSON失败 (最外层):", error.message, "Payload:", jsonString);
+    return ""; // 失败时返回空字符串
+  }
+}
+
+/**
+ * 内部辅助函数，用于从给定的 lattice 数组中提取词汇
+ * @param {Array} latticeArray - 'lattice' 或 'lattice2' 数组
+ * @param {boolean} isJsonString - 'json_1best' 字段是否为字符串（需要额外解析）
+ * @returns {Array<string>} - 词汇字符串数组
+ */
+function extractWords(latticeArray: any[], isJsonString = false) {
+  const words = [];
+  
+  // 1. 遍历所有语音段 (Segments)
+  for (const segment of latticeArray) {
+    let json_1best;
+    
+    // 2. 根据类型获取 json_1best
+    if (isJsonString) {
+      try {
+        json_1best = JSON.parse(segment.json_1best);
+      } catch (e) {
+        console.warn("解析内部 json_1best 字符串失败:", segment.json_1best, e);
+        continue; // 跳过这个损坏的 segment
+      }
+    } else {
+      json_1best = segment.json_1best;
+    }
+    
+    // 3. 遍历 st.rt 数组
+    const rtArray = json_1best?.st?.rt;
+    if (rtArray && Array.isArray(rtArray)) {
+      for (const rtElement of rtArray) {
+        
+        // 4. 遍历 ws 数组
+        const wsArray = rtElement?.ws;
+        if (wsArray && Array.isArray(wsArray)) {
+          
+          const segmentWords = wsArray.map(wordSegment => {
+            // 5. 提取最佳候选词 (cw[0].w)
+            return wordSegment?.cw?.[0]?.w;
+          });
+          
+          words.push(...segmentWords); 
+        }
+      }
+    }
+  }
+  return words;
+}
 
 /**
  * 轮询检查任务进度
@@ -61,24 +146,15 @@ async function pollForResultV2(orderId: string, appId: string, apiSecret: string
             if (orderInfo?.status === 4) { // 4 表示已完成
                 console.log('Task', orderId, 'finished successfully.');
                 if (orderResultStr) {
-                    try {
-                        // 解析 orderResult JSON 字符串
-                        const orderResult = JSON.parse(orderResultStr);
-                        // 从 lattice 或 lattice2 提取结果 (与之前类似)
-                        const lattices = orderResult.lattice2 || orderResult.lattice || [];
-                        const fullResult = lattices.map((item: any) => {
-                            try {
-                                const json_1best = JSON.parse(item.json_1best);
-                                return json_1best?.st?.rt?.map((rt: any) => rt.ws.map((w: any) => w.cw[0].w).join('')).join('') || '';
-                            } catch { return ''; }
-                        }).join('');
-
-                        console.log("Recognized sentence:", fullResult);
-                        return fullResult || "未识别到内容";
-                    } catch (parseError) {
-                        console.error("Error parsing orderResult:", parseError, orderResultStr);
-                        return "结果解析错误";
-                    }
+                   const fullResult = getRobustSentenceFromSpeechJson(orderResultStr);
+                   const finalTranscript = fullResult.trim().replace(/[.,!?:;。，！？：；]$/, '');
+                   if (finalTranscript) {
+                        console.log("Recognized sentence:", finalTranscript);
+                        return finalTranscript;
+                     } else {
+                        console.warn("Task finished but recognized sentence is empty.");
+                        return "未识别到内容";
+                     }
                 } else {
                     console.warn("Task finished but orderResult is empty.");
                     return "未识别到内容";
