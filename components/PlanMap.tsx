@@ -3,81 +3,87 @@
 
 import AMapLoader from '@amap/amap-jsapi-loader';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { Button } from '@/components/ui/button'; // 引入 Button
+import { Button } from '@/components/ui/button';
 
-// 类型定义
+// --- 类型定义 ---
 interface IActivity {
     name: string;
-    description: string; // (新!) InfoWindow 需要 description
-    location: string; // (新!) InfoWindow 需要 location
+    description: string;
+    location: string;
     lat: number;
     lng: number;
 }
 interface IDailyPlan {
     day: number;
-    theme: string; // (新!) InfoWindow 可能需要
+    theme: string;
     activities: IActivity[];
 }
 interface IPlanData {
   daily_plan: IDailyPlan[];
 }
+// (新!) 定义 Props 类型
+interface PlanMapProps {
+    planData: IPlanData;
+    selectedDay: number | null; // (新!) 接收选中的日期
+    onDaySelect: (day: number | null) => void; // (新!) 回调函数
+}
+// --- 类型定义结束 ---
 
-export default function PlanMap({ planData }: { planData: IPlanData }) {
+export default function PlanMap({ planData, selectedDay, onDaySelect }: PlanMapProps) {
     const mapContainerRef = useRef<HTMLDivElement>(null);
-    const mapRef = useRef<any>(null); // AMap.Map 实例
-    const drivingRef = useRef<any>(null); // AMap.Driving 实例
-   const currentMarkersRef = useRef<any[]>([]); // 保存当前所有 Marker 实例
-   const infoWindowRef = useRef<any>(null);
-    const [mapStatus, setMapStatus] = useState<'loading' | 'loaded' | 'error'>('loading'); // 地图加载状态
+    const mapRef = useRef<any>(null);
+    const drivingRef = useRef<any>(null);
+    const currentMarkersRef = useRef<any[]>([]);
+    const infoWindowRef = useRef<any>(null);
+    const [mapStatus, setMapStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
     const [routeStatus, setRouteStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [routeError, setRouteError] = useState<string | null>(null);
-    const [selectedDay, setSelectedDay] = useState<number | null>(null);
+    // (移除!) selectedDay 状态已移到父组件
 
     // 环境变量
     const amapKey = process.env.NEXT_PUBLIC_AMAP_KEY;
     const amapSecurityCode = process.env.NEXT_PUBLIC_AMAP_SECURITY_CODE;
 
-    // --- 封装路线计算逻辑 ---
-   const calculateRouteForDay = useCallback((dayNumber: number | null) => {
-       console.log(`[DEBUG calculateRouteForDay] Received request for dayNumber: ${dayNumber}`);
+    // --- 路线计算逻辑 ---
+    const calculateRouteForDay = useCallback((dayNumber: number | null) => {
+        console.log(`[DEBUG calculateRouteForDay] Received request for dayNumber: ${dayNumber}`);
+        
         setRouteStatus('idle');
         setRouteError(null);
         if (drivingRef.current) {
-            drivingRef.current.clear(); // 清除旧路线
+            drivingRef.current.clear();
         }
-        // 清除路线时恢复视野
+
+        const mapInstance = mapRef.current;
+        const AMap = (window as any).AMap;
+
         if (dayNumber === null) {
             console.log("Clearing route display.");
-             if (mapRef.current && currentMarkersRef.current.length > 0) {
-                 // 清除路线时，让视野重新适应所有标记点
-                 mapRef.current.setFitView(currentMarkersRef.current);
+             if (mapInstance && currentMarkersRef.current.length > 0) {
+                 mapInstance.setFitView(currentMarkersRef.current);
              }
             return;
         }
 
-        const mapInstance = mapRef.current;
-        const drivingInstance = drivingRef.current; // 使用 Ref 中的实例
-        const AMap = (window as any).AMap; // 获取全局 AMap 对象
+        const drivingInstance = drivingRef.current;
         if (!mapInstance || !drivingInstance || !AMap) {
-            console.warn("Map, Driving service, or AMap object not ready.");
-            setRouteStatus('error');
-            setRouteError('地图服务尚未准备就绪,无法规划路线'); // 提供更明确错误
+             console.warn("Map, Driving service, or AMap object not ready.");
+             setRouteStatus('error');
+             setRouteError('地图服务尚未准备就绪,无法规划路线');
             return;
         }
-      // --- DEBUG: 查找对应天的数据 ---
+
         console.log('[DEBUG calculateRouteForDay] Searching for plan data for day:', dayNumber);
         const selectedPlan = planData.daily_plan.find(day => day.day === dayNumber);
-        console.log('[DEBUG calculateRouteForDay] Found plan data:', selectedPlan ? `Day ${selectedPlan.day}` : 'Not Found');
-        // --- DEBUG END ---
+        
         const activities = selectedPlan?.activities || [];
-        const points = activities.map(act => new AMap.LngLat(act.lng, act.lat)); // 使用 AMap.LngLat
-// --- DEBUG: 打印将用于规划的点 ---
+        const points = activities.map(act => new AMap.LngLat(act.lng, act.lat));
+        
         if (points.length > 0) {
             console.log(`[DEBUG calculateRouteForDay] Points for route calculation (Day ${dayNumber}):`, points.map(p => ({lng: p.getLng(), lat: p.getLat()})));
         } else {
              console.log(`[DEBUG calculateRouteForDay] No points found for Day ${dayNumber}.`);
         }
-      // --- DEBUG END ---
       
         if (points.length >= 2) {
             console.log(`Calculating driving route for Day ${dayNumber}...`);
@@ -90,102 +96,84 @@ export default function PlanMap({ planData }: { planData: IPlanData }) {
                 if (status === 'complete') {
                     console.log(`Route for Day ${dayNumber} calculated:`, result);
                     setRouteStatus('success');
-                    // autoFitView: true 会自动调整视野，无需手动调用
-                    // mapInstance.setFitView();
-                } else if (status === 'error') {
-                     console.error(`Route calculation failed for Day ${dayNumber}:`, result);
-                   setRouteStatus('error');
-                   const infoString = typeof result?.info === 'string' ? result.info : (typeof result === 'string' ? result : '');
-                   if (infoString.includes('INSUFFICIENT_ABROAD_PRIVILEGES')) { 
-                       setRouteError(`路线规划暂不支持中国大陆以外地区`);
-                   }
-                   else {
-                      setRouteError(`路线规划失败: ${result?.info || result || '未知错误'}`);
-                   }
-                     // 失败时也恢复视野到标记点
-                     if (mapRef.current && currentMarkersRef.current.length > 0) {
-                         mapRef.current.setFitView(currentMarkersRef.current);
-                     }
-                } else { // status === 'no_data'
-                     console.warn(`No route data found for Day ${dayNumber}:`, result);
+                } else { // status is 'error' or 'no_data'
+                     console.warn(`Route calculation status not 'complete' for Day ${dayNumber}:`, status, result);
                      setRouteStatus('error');
-                     setRouteError(`未能找到第 ${dayNumber} 天的路线。`);
-                     if (mapRef.current && currentMarkersRef.current.length > 0) {
-                         mapRef.current.setFitView(currentMarkersRef.current);
+                     const infoString = typeof result?.info === 'string' ? result.info : (typeof result === 'string' ? result : '');
+                     console.log("Route calculation error info:", infoString);
+                     if (infoString.includes('国外') || infoString.includes('境外') || infoString.toLowerCase().includes('out of china')) { 
+                         setRouteError(`路线规划暂不支持中国大陆以外地区`);
+                     }
+                     else if (status === 'error' && infoString) {
+                        setRouteError(`路线规划失败: ${infoString}`);
+                     }
+                     else {
+                        setRouteError(`未能找到第 ${dayNumber} 天的路线。`);
+                     }
+                     if (mapInstance && currentMarkersRef.current.length > 0) {
+                         mapInstance.setFitView(currentMarkersRef.current);
                      }
                 }
             });
-        }else if (points.length === 1) {
-            // --- 情况 2: 只有 1 个点 -> 缩放并居中到该点 ---
+        } else if (points.length === 1) {
              console.warn(`Only one point for Day ${dayNumber}. Centering map.`);
-             setRouteStatus('idle'); // 没有路线，但也不是错误
-             setRouteError(`当天只有一个活动点。`); // 显示提示信息
-             
-             // 缩放并居中到该点
-             mapInstance.setZoomAndCenter(15, points[0]); // 15 是一个较近的缩放级别
+             setRouteStatus('idle');
+             setRouteError(`当天只有一个活动点。`);
+             mapInstance.setZoomAndCenter(15, points[0]);
         } else {
-             console.warn(`Not enough points for Day ${dayNumber} to calculate route.`);
+             console.warn(`No points found for Day ${dayNumber}.`);
              setRouteStatus('idle');
              setRouteError(`第 ${dayNumber} 天没有活动点。`);
-             if (mapRef.current && currentMarkersRef.current.length > 0) {
-                 mapRef.current.setFitView(currentMarkersRef.current); // 恢复视野
+             if (mapInstance && currentMarkersRef.current.length > 0) {
+                 mapInstance.setFitView(currentMarkersRef.current);
              }
         }
     }, [planData.daily_plan]);
 
 
-    // --- 核心 useEffect ---
+    // --- (新!) 监听 selectedDay prop 的变化 ---
     useEffect(() => {
-        // 提前检查 Key
+        // 确保地图加载完成后才执行
+        if (mapStatus === 'loaded') { 
+            console.log(`[Effect selectedDay] Prop changed to: ${selectedDay}. Calculating route.`);
+            calculateRouteForDay(selectedDay);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedDay, mapStatus]); // 依赖 selectedDay (来自 props) 和 mapStatus
+
+
+    // --- 核心 useEffect (初始化) ---
+    useEffect(() => {
         if (!amapKey) {
             console.error("Missing NEXT_PUBLIC_AMAP_KEY environment variable.");
             setMapStatus('error');
             setRouteError('地图 Key 未配置');
-            return; // 阻止后续执行
+            return;
         }
-        // 设置安全密钥
         if (typeof window !== 'undefined') {
           (window as any)._AMapSecurityConfig = { securityJsCode: amapSecurityCode };
         }
+        let mapInstance: any = null;
+        let mapCompleteHandler: any = null;
+        let isMounted = true;
+        setMapStatus('loading');
+        setRouteError(null);
 
-        let mapInstance: any = null; // 局部变量
-        let mapCompleteHandler: any = null; // 事件处理器引用
-        let isMounted = true; // 跟踪组件是否挂载
-
-        setMapStatus('loading'); // 开始加载
-        setRouteError(null); // 清除旧错误
-
-        // 使用 setTimeout 延迟加载
         const timerId = setTimeout(() => {
-            if (!isMounted) return; // 如果组件已卸载，则不执行加载
-
-            console.log("Starting AMapLoader.load() after delay..."); // 调试日志
-
+            if (!isMounted) return;
+            console.log("Starting AMapLoader.load() after delay...");
             AMapLoader.load({
                 key: amapKey, version: '2.0',
-                plugins: ['AMap.ToolBar', 'AMap.Scale', 'AMap.Driving'],
+                plugins: ['AMap.ToolBar', 'AMap.Scale', 'AMap.Driving', 'AMap.InfoWindow'],
             })
                 .then((AMap) => {
-                    if (!isMounted || !mapContainerRef.current) {
-                         console.warn("Component unmounted or map container gone before AMap loaded.");
-                         return; // 再次检查
-                    }
-                    (window as any).AMap = AMap; // 挂载 AMap
-
-                    // 1. 初始化地图实例
-                    mapInstance = new AMap.Map(mapContainerRef.current, {
-                         zoom: 11,
-                         center: [116.397428, 39.90923] // 默认中心点
-                    });
-                    mapRef.current = mapInstance; // 保存实例
+                    if (!isMounted || !mapContainerRef.current) return;
+                    (window as any).AMap = AMap;
+                    mapInstance = new AMap.Map(mapContainerRef.current, { zoom: 11, center: [116.397428, 39.90923] });
+                    mapRef.current = mapInstance;
                     console.log("Map instance created. Waiting for 'complete' event...");
-
-                    // 2. 定义 'complete' 事件处理器
                     mapCompleteHandler = () => {
-                        if (!isMounted || !mapRef.current) {
-                             console.warn("'complete' fired but component unmounted or map instance is gone.");
-                             return; // 再次检查
-                        }
+                        if (!isMounted || !mapRef.current) return;
                         console.log("Map 'complete' event fired!");
                         setMapStatus('loaded'); // 标记地图已加载
 
@@ -194,206 +182,126 @@ export default function PlanMap({ planData }: { planData: IPlanData }) {
                             mapRef.current.addControl(new AMap.ToolBar());
                             mapRef.current.addControl(new AMap.Scale());
                             console.log("Controls added.");
-                        } catch (controlError: any) {
-                             console.error("Error adding controls:", controlError.message);
-                        }
+                        } catch (controlError: any) { console.error("Error adding controls:", controlError.message); }
 
-                        // --- (新!) b. 初始化 InfoWindow ---
+                        // b. 初始化 InfoWindow
                         const infoWindow = new AMap.InfoWindow({
-                            isCustom: true,  // 使用自定义 HTML
-                            autoMove: true,  // 自动平移
-                            offset: new AMap.Pixel(0, -30), // 偏移量，在标记点上方
-                            closeWhenClickMap: true, // 点击地图时关闭
+                            isCustom: true,
+                            autoMove: true,
+                            offset: new AMap.Pixel(0, -30),
+                            closeWhenClickMap: true,
                         });
-                        infoWindowRef.current = infoWindow; // 保存引用以便清理
-                        // b. 添加标记点
+                        infoWindowRef.current = infoWindow;
+
+                        // c. 添加标记点 (带编号和点击事件)
                         const markers: any[] = [];
-                        currentMarkersRef.current = []; // 清空旧引用
+                        currentMarkersRef.current = [];
                         planData.daily_plan.forEach((day) => {
-                            day.activities.forEach((activity,index) => {
-                               const position: [number, number] = [activity.lng, activity.lat];
-                               const dayNum = day.day;
-                               const activityNum = index + 1; // 1-based index
-                               const markerContent = document.createElement('div');
-                               markerContent.style.cssText = `
-                                    width: 28px;
-                                    height: 28px;
-                                    line-height: 28px;
-                                    text-align: center;
-                                    color: var(--primary-foreground, #FFF); /* 默认为白色 */
-                                    background-color: var(--primary, #1d4ed8); /* 默认为靛蓝色 */
-                                    border-radius: 50%;
-                                    font-size: 11px;
-                                    font-weight: 600;
-                                    border: 2px solid white;
-                                    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-                                    cursor: pointer;
-                                    transition: transform 0.1s ease;
-                                `;
-                               markerContent.innerHTML = `${dayNum}-${activityNum}`; // 例如 "1-1", "2-3"
-                                // 鼠标悬停效果
-                                markerContent.onmouseover = () => { markerContent.style.transform = 'scale(1.15)'; };
-                                markerContent.onmouseout = () => { markerContent.style.transform = 'scale(1.0)'; };
-                                // --- 自定义 HTML 结束 ---
-                               
-                                try {
-                                    const marker = new AMap.Marker({
-                                        position: position,
-                                        title: activity.name, // 鼠标悬停时的原生 title
-                                        content: markerContent, // 使用自定义 HTML
-                                        offset: new AMap.Pixel(-14, -14), // 偏移量 (宽度/2, 高度/2)
-                                        // anchor: 'bottom-center', // 如果使用默认图标
-                                    });
-
-                                    // --- (新!) 5.2 信息窗体: 绑定点击事件 ---
-                                    marker.on('click', () => {
-                                        // 构建 InfoWindow 的内容
-                                        const infoWindowContent = `
-                                            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 10px 14px; border-radius: 8px; background-color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 1px solid #e5e7eb; width: 240px;">
-                                                <h4 style="margin: 0 0 8px 0; font-size: 15px; font-weight: 600; color: #111827;">${activity.name || '未命名活动'}</h4>
-                                                <p style="margin: 0; font-size: 13px; color: #4b5563;">${activity.location || '未知地点'}</p>
-                                                <p style="margin: 8px 0 0 0; font-size: 12px; color: #6b7280; border-top: 1px dashed #e5e7eb; padding-top: 8px;">
-                                                    第 ${dayNum} 天 - 活动 ${activityNum}
-                                                </p>
-                                            </div>
+                            if (day && Array.isArray(day.activities)) {
+                                day.activities.forEach((activity, index) => {
+                                    if (activity && typeof activity.lng === 'number' && typeof activity.lat === 'number') {
+                                        const position: [number, number] = [activity.lng, activity.lat];
+                                        const dayNum = day.day;
+                                        const activityNum = index + 1;
+                                        const markerContent = document.createElement('div');
+                                        markerContent.style.cssText = `
+                                            width: 28px; height: 28px; line-height: 28px; text-align: center;
+                                            color: var(--primary-foreground, #FFF);
+                                            background-color: var(--primary, #1d4ed8); /* 默认为靛蓝色 */
+                                            border-radius: 50%; font-size: 11px; font-weight: 600;
+                                            border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+                                            cursor: pointer; transition: transform 0.1s ease;
                                         `;
-                                        infoWindow.setContent(infoWindowContent);
-                                        infoWindow.open(mapRef.current, marker.getPosition());
-                                        console.log(`InfoWindow opened for: ${activity.name}`);
-                                    });
-                                    // --- 绑定事件结束 ---
-
-                                    markers.push(marker);
-                                } catch (markerError: any) {
-                                     console.error(`Error creating marker for ${activity.name}:`, markerError.message);
-                                }
-                            });
+                                        markerContent.innerHTML = `${dayNum}-${activityNum}`;
+                                        markerContent.onmouseover = () => { markerContent.style.transform = 'scale(1.15)'; };
+                                        markerContent.onmouseout = () => { markerContent.style.transform = 'scale(1.0)'; };
+                                        
+                                        try {
+                                            const marker = new AMap.Marker({
+                                                position: position,
+                                                title: activity.name,
+                                                content: markerContent,
+                                                offset: new AMap.Pixel(-14, -14),
+                                            });
+                                            marker.on('click', () => {
+                                                const infoWindowContent = `
+                                                    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 10px 14px; border-radius: 8px; background-color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 1px solid #e5e7eb; width: 240px;">
+                                                        <h4 style="margin: 0 0 8px 0; font-size: 15px; font-weight: 600; color: #111827;">${activity.name || '未命名活动'}</h4>
+                                                        <p style="margin: 0; font-size: 13px; color: #4b5563;">${activity.location || '未知地点'}</p>
+                                                        <p style="margin: 8px 0 0 0; font-size: 12px; color: #6b7280; border-top: 1px dashed #e5e7eb; padding-top: 8px;">
+                                                            第 ${dayNum} 天 - 活动 ${activityNum}
+                                                        </p>
+                                                    </div>
+                                                `;
+                                                infoWindow.setContent(infoWindowContent);
+                                                infoWindow.open(mapRef.current, marker.getPosition());
+                                                console.log(`InfoWindow opened for: ${activity.name}`);
+                                                // (新!) 点击标记点时，也更新父组件的 selectedDay
+                                                onDaySelect(dayNum);
+                                            });
+                                            markers.push(marker);
+                                        } catch (markerError: any) { console.error(`Error creating marker for ${activity.name}:`, markerError.message); }
+                                    }
+                                });
+                            }
                         });
                         if (markers.length > 0) {
-                            try {
-                                mapRef.current.add(markers);
-                                currentMarkersRef.current = markers; // 保存新引用
-                                console.log("Markers added.");
-                                console.log("Setting initial view to fit markers...");
-                                mapRef.current.setFitView(markers); // 调整视野适应标记点
-                            } catch (addMarkerError: any) {
-                                 console.error("Error adding markers to map:", addMarkerError.message);
-                            }
-                        } else {
-                            console.warn("No markers to add.");
-                        }
-
-                        // c. 初始化路线规划实例 - 添加 autoFitView
+                            try { mapRef.current.add(markers); currentMarkersRef.current = markers; console.log("Markers added."); mapRef.current.setFitView(markers); }
+                            catch (addMarkerError: any) { console.error("Error adding markers to map:", addMarkerError.message); }
+                        } else { console.warn("No markers to add."); }
+                        
+                        // d. 初始化路线规划实例
                         const DrivingPlugin = AMap.Driving;
                         if (DrivingPlugin) {
-                             try {
-                                const drivingInstance = new DrivingPlugin({
-                                    map: mapRef.current,
-                                    policy: AMap.DrivingPolicy.LEAST_TIME,
-                                    hideMarkers: true,
-                                    showTraffic: false,
-                                    autoFitView: true, // <--- 关键修改! 让插件自动调整视野
-                                });
-                                drivingRef.current = drivingInstance; // 保存实例
-                                console.log("Driving plugin instance created with autoFitView.");
-                                setRouteStatus('idle'); // 插件准备就绪
-                             } catch (drivingInitError: any) {
+                             try { const drivingInstance = new DrivingPlugin({ map: mapRef.current, policy: AMap.DrivingPolicy.LEAST_TIME, hideMarkers: true, showTraffic: false, autoFitView: true }); drivingRef.current = drivingInstance; console.log("Driving plugin instance created..."); setRouteStatus('idle'); }
+                             catch (drivingInitError: any) {
                                   console.error("Error initializing AMap.Driving:", drivingInitError.message);
-                                  setMapStatus('error'); // 插件初始化失败也算地图错误
-                                  setRouteStatus('error');
-                                  setRouteError('路线规划插件初始化失败');
+                                  setMapStatus('error'); setRouteStatus('error'); setRouteError('路线规划插件初始化失败');
                              }
                         } else {
                              console.error("AMap.Driving plugin not loaded correctly after map complete!");
-                             setMapStatus('error');
-                             setRouteStatus('error');
-                             setRouteError('路线规划插件加载失败');
+                             setMapStatus('error'); setRouteStatus('error'); setRouteError('路线规划插件加载失败');
                         }
-                    }; // --- 'complete' 事件处理结束 ---
-
-                    // 3. 绑定 'complete' 事件监听器
+                    };
+                    
                     mapInstance.on('complete', mapCompleteHandler);
-                    mapInstance.on('click', () => {
-                        if (infoWindowRef.current) {
-                            infoWindowRef.current.close();
-                        }
-                    });
+                    mapInstance.on('click', () => { if (infoWindowRef.current) { infoWindowRef.current.close(); } });
                 })
                 .catch((e) => {
-                    if (!isMounted) return; // 异步错误也检查挂载状态
-                    console.error('高德地图 JSAPI 加载或初始化失败:', e);
-                    setMapStatus('error');
-                    setRouteStatus('error'); // 加载失败也影响路线
-                    setRouteError(`地图加载失败: ${e.message}`);
+                     if (!isMounted) return;
+                     console.error('高德地图 JSAPI 加载或初始化失败:', e);
+                     setMapStatus('error'); setRouteStatus('error');
+                     setRouteError(`地图加载失败: ${e.message}`);
                 });
-
-        }, 0); // 使用 0ms 延迟
-
+        }, 0);
 
         // --- 组件卸载时的清理函数 ---
         return () => {
              console.log('PlanMap unmounting: Cleaning up map resources...');
-             isMounted = false; // 标记组件已卸载
-             clearTimeout(timerId); // 清除可能未执行的 setTimeout
-
-             // 移除 'complete' 事件监听器
-             if (mapRef.current && mapCompleteHandler) {
-                 try {
-                      mapRef.current.off('complete', mapCompleteHandler);
-                      console.log("Removed 'complete' event listener.");
-                 } catch (offError: any) {
-                      console.warn("Error removing 'complete' listener:", offError.message);
-                 }
-             }
-             mapCompleteHandler = null; // 清理引用
-            if (infoWindowRef.current) {
-                 // infoWindowRef.current.close(); // Map 销毁时会自动关闭
-                 infoWindowRef.current = null;
-                 console.log("Cleared infoWindow reference.");
-             }
-            // 清理 Driving 实例引用
-            if (drivingRef.current) {
-                drivingRef.current = null;
-                console.log("Cleared driving instance reference.");
-            }
-
-            // 销毁 Map 实例
-            if (mapRef.current) {
-                try {
-                    console.log("Attempting to destroy map instance...");
-                    mapRef.current.destroy();
-                    console.log("Map instance destroyed successfully.");
-                } catch (e: any) {
-                    console.error("Error occurred during map destruction:", e.message);
-                } finally {
-                    mapRef.current = null; // 确保 ref 被清空
-                }
-            } else {
-                console.log("Map instance reference already null.");
-            }
-
-            currentMarkersRef.current = []; // 清空 markers 引用
-            console.log('Map resources cleanup function finished.');
+             isMounted = false; clearTimeout(timerId);
+             if (mapRef.current && mapCompleteHandler) { try { mapRef.current.off('complete', mapCompleteHandler); } catch (offError: any) { console.warn("Error removing 'complete' listener:", offError.message); } }
+             mapCompleteHandler = null;
+             if (infoWindowRef.current) { infoWindowRef.current = null; }
+             if (drivingRef.current) { drivingRef.current = null; }
+             if (mapRef.current) { try { mapRef.current.destroy(); } catch (e: any) { console.error("Error occurred during map destruction:", e.message); } finally { mapRef.current = null; } }
+             currentMarkersRef.current = [];
+             console.log('Map resources cleanup function finished.');
         };
-
     // 依赖项
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [planData, amapKey, amapSecurityCode]);
 
-    // --- 处理日期按钮点击 ---
+    // --- (新!) 处理日期按钮点击 ---
     const handleDayButtonClick = (dayNumber: number | null) => {
-        // 如果点击的是当前选中的日期，则取消选择 (清除路线)
-        if (selectedDay === dayNumber) {
-            setSelectedDay(null);
-            calculateRouteForDay(null);
-        } else {
-            setSelectedDay(dayNumber); // 更新选中的日期
-            calculateRouteForDay(dayNumber); // 计算新路线
+        // 点击按钮时，关闭已打开的 InfoWindow
+        if (infoWindowRef.current) {
+             infoWindowRef.current.close();
         }
+        // 调用父组件的回调函数
+        onDaySelect(dayNumber === selectedDay ? null : dayNumber);
     };
 
     // --- JSX ---
-    // Key 检查提前
     if (!amapKey) {
         return (
           <div className="h-96 w-full rounded-lg bg-red-100 flex items-center justify-center p-4 text-center">
@@ -405,32 +313,29 @@ export default function PlanMap({ planData }: { planData: IPlanData }) {
     }
 
     return (
-        <div className="space-y-4"> {/* 纵向布局容器 */}
+        <div className="space-y-4">
             {/* 地图区域 */}
             <div className="relative">
                 <div
                   ref={mapContainerRef}
-                  className="h-96 w-full rounded-lg bg-gray-100" // 添加背景色
+                  className="h-96 w-full rounded-lg bg-gray-100"
                   style={{ height: '400px' }}
                 >
-                  {/* 地图加载状态 */}
                   {mapStatus === 'loading' && (
                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                        <p className="text-muted-foreground bg-white/70 p-2 rounded">地图加载中...</p>
                      </div>
                   )}
-                  {/* 地图加载错误状态 */}
                   {mapStatus === 'error' && (
                        <div className="absolute inset-0 flex items-center justify-center p-4 text-center pointer-events-none">
                          <p className="text-red-600 font-medium bg-red-100/80 p-3 rounded">{routeError || '地图加载失败'}</p>
                        </div>
                   )}
                 </div>
-                {/* 路线状态提示 (只有地图加载成功后才可能显示) */}
+                {/* 路线状态提示 */}
                 {mapStatus === 'loaded' && (routeStatus === 'loading' || routeError) && (
                     <div className="absolute top-2 left-2 bg-white p-2 rounded shadow text-sm z-10 pointer-events-none">
                         {routeStatus === 'loading' && '正在计算路线...'}
-                        {/* 只有在 routeError 有值时才显示 */}
                         {routeError && (
                             <span className="text-red-600">路线提示: {routeError}</span>
                         )}
@@ -438,22 +343,19 @@ export default function PlanMap({ planData }: { planData: IPlanData }) {
                 )}
             </div>
 
-            {/* 日期选择按钮区域 (只有地图加载成功后才显示) */}
+            {/* 日期选择按钮区域 */}
             {mapStatus === 'loaded' && (
                 <div className="flex flex-wrap gap-2 justify-center">
-                     {/* 清除路线按钮 */}
-                     {planData.daily_plan.length > 0 && ( // 确保有数据才显示
+                     {planData.daily_plan.length > 0 && (
                         <Button
                             variant={selectedDay === null ? 'secondary' : 'outline'}
                             size="sm"
                             onClick={() => handleDayButtonClick(null)}
-                            // 加载路线时禁用所有按钮
                             disabled={routeStatus === 'loading'}
                         >
                             清除路线
                         </Button>
                      )}
-                     {/* 每日路线按钮 */}
                      {planData.daily_plan.map((day) => (
                         <Button
                             key={day.day}
