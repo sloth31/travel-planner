@@ -8,11 +8,14 @@ import { Button } from '@/components/ui/button'; // 引入 Button
 // 类型定义
 interface IActivity {
     name: string;
+    description: string; // (新!) InfoWindow 需要 description
+    location: string; // (新!) InfoWindow 需要 location
     lat: number;
     lng: number;
 }
 interface IDailyPlan {
     day: number;
+    theme: string; // (新!) InfoWindow 可能需要
     activities: IActivity[];
 }
 interface IPlanData {
@@ -23,7 +26,8 @@ export default function PlanMap({ planData }: { planData: IPlanData }) {
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<any>(null); // AMap.Map 实例
     const drivingRef = useRef<any>(null); // AMap.Driving 实例
-    const currentMarkersRef = useRef<any[]>([]); // 保存当前所有 Marker 实例
+   const currentMarkersRef = useRef<any[]>([]); // 保存当前所有 Marker 实例
+   const infoWindowRef = useRef<any>(null);
     const [mapStatus, setMapStatus] = useState<'loading' | 'loaded' | 'error'>('loading'); // 地图加载状态
     const [routeStatus, setRouteStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [routeError, setRouteError] = useState<string | null>(null);
@@ -111,10 +115,18 @@ export default function PlanMap({ planData }: { planData: IPlanData }) {
                      }
                 }
             });
+        }else if (points.length === 1) {
+            // --- 情况 2: 只有 1 个点 -> 缩放并居中到该点 ---
+             console.warn(`Only one point for Day ${dayNumber}. Centering map.`);
+             setRouteStatus('idle'); // 没有路线，但也不是错误
+             setRouteError(`当天只有一个活动点。`); // 显示提示信息
+             
+             // 缩放并居中到该点
+             mapInstance.setZoomAndCenter(15, points[0]); // 15 是一个较近的缩放级别
         } else {
              console.warn(`Not enough points for Day ${dayNumber} to calculate route.`);
              setRouteStatus('idle');
-             setRouteError(`第 ${dayNumber} 天活动点不足 (少于2个)，无法规划路线。`);
+             setRouteError(`第 ${dayNumber} 天没有活动点。`);
              if (mapRef.current && currentMarkersRef.current.length > 0) {
                  mapRef.current.setFitView(currentMarkersRef.current); // 恢复视野
              }
@@ -186,15 +198,71 @@ export default function PlanMap({ planData }: { planData: IPlanData }) {
                              console.error("Error adding controls:", controlError.message);
                         }
 
-
+                        // --- (新!) b. 初始化 InfoWindow ---
+                        const infoWindow = new AMap.InfoWindow({
+                            isCustom: true,  // 使用自定义 HTML
+                            autoMove: true,  // 自动平移
+                            offset: new AMap.Pixel(0, -30), // 偏移量，在标记点上方
+                            closeWhenClickMap: true, // 点击地图时关闭
+                        });
+                        infoWindowRef.current = infoWindow; // 保存引用以便清理
                         // b. 添加标记点
                         const markers: any[] = [];
                         currentMarkersRef.current = []; // 清空旧引用
                         planData.daily_plan.forEach((day) => {
-                            day.activities.forEach((activity) => {
-                                const position: [number, number] = [activity.lng, activity.lat];
+                            day.activities.forEach((activity,index) => {
+                               const position: [number, number] = [activity.lng, activity.lat];
+                               const dayNum = day.day;
+                               const activityNum = index + 1; // 1-based index
+                               const markerContent = document.createElement('div');
+                               markerContent.style.cssText = `
+                                    width: 28px;
+                                    height: 28px;
+                                    line-height: 28px;
+                                    text-align: center;
+                                    color: var(--primary-foreground, #FFF); /* 默认为白色 */
+                                    background-color: var(--primary, #1d4ed8); /* 默认为靛蓝色 */
+                                    border-radius: 50%;
+                                    font-size: 11px;
+                                    font-weight: 600;
+                                    border: 2px solid white;
+                                    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+                                    cursor: pointer;
+                                    transition: transform 0.1s ease;
+                                `;
+                               markerContent.innerHTML = `${dayNum}-${activityNum}`; // 例如 "1-1", "2-3"
+                                // 鼠标悬停效果
+                                markerContent.onmouseover = () => { markerContent.style.transform = 'scale(1.15)'; };
+                                markerContent.onmouseout = () => { markerContent.style.transform = 'scale(1.0)'; };
+                                // --- 自定义 HTML 结束 ---
+                               
                                 try {
-                                    const marker = new AMap.Marker({ position, title: activity.name });
+                                    const marker = new AMap.Marker({
+                                        position: position,
+                                        title: activity.name, // 鼠标悬停时的原生 title
+                                        content: markerContent, // 使用自定义 HTML
+                                        offset: new AMap.Pixel(-14, -14), // 偏移量 (宽度/2, 高度/2)
+                                        // anchor: 'bottom-center', // 如果使用默认图标
+                                    });
+
+                                    // --- (新!) 5.2 信息窗体: 绑定点击事件 ---
+                                    marker.on('click', () => {
+                                        // 构建 InfoWindow 的内容
+                                        const infoWindowContent = `
+                                            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 10px 14px; border-radius: 8px; background-color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 1px solid #e5e7eb; width: 240px;">
+                                                <h4 style="margin: 0 0 8px 0; font-size: 15px; font-weight: 600; color: #111827;">${activity.name || '未命名活动'}</h4>
+                                                <p style="margin: 0; font-size: 13px; color: #4b5563;">${activity.location || '未知地点'}</p>
+                                                <p style="margin: 8px 0 0 0; font-size: 12px; color: #6b7280; border-top: 1px dashed #e5e7eb; padding-top: 8px;">
+                                                    第 ${dayNum} 天 - 活动 ${activityNum}
+                                                </p>
+                                            </div>
+                                        `;
+                                        infoWindow.setContent(infoWindowContent);
+                                        infoWindow.open(mapRef.current, marker.getPosition());
+                                        console.log(`InfoWindow opened for: ${activity.name}`);
+                                    });
+                                    // --- 绑定事件结束 ---
+
                                     markers.push(marker);
                                 } catch (markerError: any) {
                                      console.error(`Error creating marker for ${activity.name}:`, markerError.message);
@@ -245,7 +313,11 @@ export default function PlanMap({ planData }: { planData: IPlanData }) {
 
                     // 3. 绑定 'complete' 事件监听器
                     mapInstance.on('complete', mapCompleteHandler);
-
+                    mapInstance.on('click', () => {
+                        if (infoWindowRef.current) {
+                            infoWindowRef.current.close();
+                        }
+                    });
                 })
                 .catch((e) => {
                     if (!isMounted) return; // 异步错误也检查挂载状态
@@ -274,7 +346,11 @@ export default function PlanMap({ planData }: { planData: IPlanData }) {
                  }
              }
              mapCompleteHandler = null; // 清理引用
-
+            if (infoWindowRef.current) {
+                 // infoWindowRef.current.close(); // Map 销毁时会自动关闭
+                 infoWindowRef.current = null;
+                 console.log("Cleared infoWindow reference.");
+             }
             // 清理 Driving 实例引用
             if (drivingRef.current) {
                 drivingRef.current = null;

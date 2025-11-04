@@ -17,12 +17,19 @@ const SYSTEM_PROMPT = `
 你必须只返回一个符合以下 TypeScript 接口的 JSON 对象，不要有任何其他解释或开场白。
 
 interface IActivity {
-  name: string;
+  name: string; //  景点的通用名称 (例如: "乌菲兹美术馆")
   description: string;
-  location: string;
+  location: string; //  景点的具体街道地址 (例如: "Piazzale degli Uffizi, 6, 50122 Firenze FI, Italy")
   lat: number;
   lng: number;
 }
+  // -------------------------------------------------------------------
+// (重要!) 在你的 JSON 响应中:
+// 'name' 必须是景点的通用名称。
+// 'location' 必须是该景点的 *具体街道地址* (如果可能，包含城市和国家)。
+// *不要* 在 'location' 字段中简单地重复 'name' 字段的内容！
+// 'lat' 和 'lng' 必须是该街道地址的精确坐标。
+// -------------------------------------------------------------------
 
 interface IDailyPlan {
   day: number;

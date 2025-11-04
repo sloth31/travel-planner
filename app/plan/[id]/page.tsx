@@ -235,28 +235,22 @@ export default async function PlanDetailPage({ params }: { params: { id: string 
 
 
   // --- 渲染 UI ---
-  return (
-    <div className="max-w-4xl mx-auto p-8 md:p-12 space-y-8">
-      {/* 挂载 Realtime/Polling 组件 */}
+return (
+    <div className="max-w-6xl mx-auto p-8 md:p-12 space-y-8">
+      
       <PlanSubscriber planId={plan.id} />
 
-      {/* 页眉 */}
+      {/* 页眉 (保持不变) */}
       <header className="mb-6 border-b pb-4">
-        {/* 返回按钮 */}
         <Button asChild variant="outline" size="sm" className="mb-4">
-          <Link href="/my-plans">
-               <ArrowLeft className="h-4 w-4 mr-1" />
-               返回列表
-          </Link>
+          <Link href="/my-plans"><ArrowLeft className="h-4 w-4 mr-1" />返回列表</Link>
         </Button>
-        {/* 标题和预算 */}
         <h1 className="text-4xl font-bold text-slate-800">{planData.title}</h1>
         <p className="text-lg text-muted-foreground mt-2">{planData.budget_overview}</p>
-        {/* 原始请求 */}
         <p className="text-sm text-gray-500 mt-4 italic">原始请求: "{plan.original_prompt || 'N/A'}"</p>
       </header>
 
-{/* 5. (新!) 往返交通和预估预算摘要 */}
+      {/* 往返交通和预估预算摘要 (保持不变) */}
       <Card className="shadow-md bg-white/70">
           <CardHeader>
               <CardTitle className="text-xl font-semibold flex items-center text-sky-600">
@@ -264,7 +258,6 @@ export default async function PlanDetailPage({ params }: { params: { id: string 
                   旅行交通与财务摘要
               </CardTitle>
               <CardDescription>
-                  {/* 预估总预算 */}
                   <div className="mt-2 text-lg font-medium text-slate-700 flex items-center">
                       <DollarSign className="h-5 w-5 mr-1 text-green-600" />
                       预估总预算: {estimatedTotalCNY.toLocaleString('zh-CN')} CNY
@@ -272,13 +265,11 @@ export default async function PlanDetailPage({ params }: { params: { id: string 
               </CardDescription>
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              {/* 去程交通 */}
               <div>
                   <h4 className="font-semibold text-slate-600">去程 ({planData.initial_transport.to_destination?.method || 'N/A'})</h4>
                   <p className="text-muted-foreground">{planData.initial_transport.to_destination?.details || '未规划'}</p>
                   <p className="text-green-500 font-medium">预估费用: {planData.initial_transport.to_destination?.estimated_cost ? `${planData.initial_transport.to_destination.estimated_cost} CNY` : 'N/A'}</p>
               </div>
-              {/* 回程交通 */}
               <div>
                   <h4 className="font-semibold text-slate-600">回程 ({planData.initial_transport.from_destination?.method || 'N/A'})</h4>
                   <p className="text-muted-foreground">{planData.initial_transport.from_destination?.details || '未规划'}</p>
@@ -286,127 +277,134 @@ export default async function PlanDetailPage({ params }: { params: { id: string 
               </div>
           </CardContent>
       </Card>
-      {/* 地图 */}
-      <DynamicPlanMap planData={planData} />
 
 
-  {/* 记账器和开销列表 */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
-        {/* 1. (左侧) 记账器区域 - 显示预算余额 */}
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold flex items-center text-slate-700 mb-2">
-               <Wallet className="h-5 w-5 mr-2 text-red-500" />
-               预算与记账
-          </h2>
-          <Card className={`shadow-md border-2 ${remainingBudget < 0 ? "border-red-500 bg-red-50/50" : "border-green-500 bg-green-50/50"}`}> {/* 根据余额显示颜色 */}
-             <CardContent className="p-4">
-                 <div className="flex justify-between items-center pb-2 border-b border-gray-200">
-                    <p className="text-sm font-medium text-slate-600">预估总预算 (CNY)</p>
-                    <p className="text-lg font-bold text-slate-800">{estimatedTotalCNY.toLocaleString('zh-CN')}</p>
-                 </div>
-                 
-                 <div className="flex justify-between items-center pt-2">
-                    <p className="text-sm font-medium text-slate-600">剩余余额 (CNY)</p>
-                    <p className="text-xl font-extrabold" style={{ color: remainingBudget < 0 ? '#dc2626' : '#10b981' }}> {/* 使用 Tailwind 颜色 Hex 值 */}
-                        {remainingBudget.toLocaleString('zh-CN')}
-                    </p>
-                 </div>
-             </CardContent>
-          </Card>
-          <ExpenseLogger planId={plan.id} />
-        </div>
-        
-        {/* 2. (右侧) 开销列表区域 - 优化 UI */}
-        <div className="space-y-4">
-          <h2 className="text-2xl font-semibold flex items-center text-primary">
-              <ListChecks className="h-6 w-6 mr-2" />
-              开销详情
-          </h2>
-          <p className="text-lg font-medium">已记总开销: {totalSummary || '0.00'}</p>
-          
-          {/* 3. (新!) 统一列表 UI 优化和筛选功能 */}
-          <ExpenseTableWrapper expenses={expenses} planId={plan.id} /> {/* (新!) 使用一个包裹组件来处理滚动和筛选 */}
-        </div>
-      </div>
+      {/* --- (新!) 双栏布局容器 --- */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-8 lg:gap-12">
 
-
-      {/* 详细行程列表 */}
-      <div className="pt-4 border-t">
-        <h2 className="text-2xl font-semibold mb-6 flex items-center text-primary">
-            <CalendarDays className="h-6 w-6 mr-2" />
-            每日行程
-        </h2>
-        <div className="space-y-6">
-          {/* 检查 daily_plan 是否存在且为数组 */}
-          {planData.daily_plan && planData.daily_plan.length > 0 ? (
-            planData.daily_plan.map((day) => (
-              // 检查 day 对象是否存在且有 day.day
-              day && day.day ? (
-                <Card key={day.day} className="overflow-hidden shadow-sm">
-                  <CardHeader className="bg-primary/5 p-4">
-                    <CardTitle className="text-xl font-medium text-primary/90">
-                        Day {day.day}: {day.theme || '未命名主题'}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-4 space-y-5">
-                    {/* 活动列表 */}
-                    <div className="space-y-4">
-                      <h3 className="font-semibold text-lg mb-2 text-slate-700">活动安排:</h3>
-                      {/* 检查 activities 是否存在且为数组 */}
-                      {day.activities && day.activities.length > 0 ? (
-                        day.activities.map((activity, index) => (
-                          // 检查 activity 对象是否存在
-                          activity ? (
-                            <div key={index} className="pb-4 border-b last:border-b-0 border-dashed">
-                              <div className="flex justify-between items-start gap-2">
-                                <div className="flex items-start flex-grow mr-2 pt-1">
-                                  {getActivityIcon(activity.name || '')}
-                                  <h4 className="text-base font-medium text-slate-800">{activity.name || '未命名活动'}</h4>
+          {/* --- (新!) 左侧栏: 每日行程 (可滚动) --- */}
+          <div className="md:col-span-3 pt-4 border-t md:border-t-0">
+            <h2 className="text-2xl font-semibold mb-6 flex items-center text-primary">
+                <CalendarDays className="h-6 w-6 mr-2" />
+                每日行程
+            </h2>
+            <div className="space-y-6">
+              {planData.daily_plan && planData.daily_plan.length > 0 ? (
+                planData.daily_plan.map((day) => (
+                  day && day.day ? (
+                    <Card key={day.day} className="overflow-hidden shadow-sm">
+                      <CardHeader className="bg-primary/5 p-4">
+                        <CardTitle className="text-xl font-medium text-primary/90">
+                            Day {day.day}: {day.theme || '未命名主题'}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="p-4 space-y-5">
+                        {/* 活动列表 */}
+                        <div className="space-y-4">
+                          <h3 className="font-semibold text-lg mb-2 text-slate-700">活动安排:</h3>
+                          {day.activities && day.activities.length > 0 ? (
+                            day.activities.map((activity, index) => (
+                              activity ? (
+                                <div key={index} className="pb-4 border-b last:border-b-0 border-dashed">
+                                  {/* ... (活动详情, 导航按钮等) ... */}
+                                  <div className="flex justify-between items-start gap-2">
+                                      <div className="flex items-start flex-grow mr-2 pt-1">
+                                          {getActivityIcon(activity.name || '')}
+                                          <h4 className="text-base font-medium text-slate-800">{activity.name || '未命名活动'}</h4>
+                                      </div>
+                                      {typeof activity.lng === 'number' && typeof activity.lat === 'number' ? (
+                                          <Button asChild variant="outline" size="sm" className="flex-shrink-0">
+                                              <Link href={`https://uri.amap.com/marker?position=${activity.lng},${activity.lat}&name=${encodeURIComponent(activity.name || '未知地点')}`} target="_blank" rel="noopener noreferrer">
+                                                  <Navigation className="h-4 w-4 mr-1 text-blue-500"/>
+                                                  导航
+                                              </Link>
+                                          </Button>
+                                      ) : ( <Button variant="outline" size="sm" className="flex-shrink-0" disabled>导航 (无坐标)</Button> )}
+                                  </div>
+                                  <p className="text-sm text-muted-foreground mt-1 ml-6">{activity.description || '无描述'}</p>
+                                  <p className="text-xs text-blue-600 mt-1 ml-6">📍 {activity.location || '未知位置'} (lat: {activity.lat ?? 'N/A'}, lng: {activity.lng ?? 'N/A'})</p>
                                 </div>
-                                {/* 确保 lng 和 lat 存在 */}
-                                {typeof activity.lng === 'number' && typeof activity.lat === 'number' ? (
-                                    <Button asChild variant="outline" size="sm" className="flex-shrink-0">
-                                      <Link href={`https://uri.amap.com/marker?position=${activity.lng},${activity.lat}&name=${encodeURIComponent(activity.name || '未知地点')}`} target="_blank" rel="noopener noreferrer">
-                                        <Navigation className="h-4 w-4 mr-1 text-blue-500"/>
-                                        导航
-                                      </Link>
-                                    </Button>
-                                ) : (
-                                     <Button variant="outline" size="sm" className="flex-shrink-0" disabled>导航 (无坐标)</Button>
-                                )}
-                              </div>
-                              <p className="text-sm text-muted-foreground mt-1 ml-6">{activity.description || '无描述'}</p>
-                              <p className="text-xs text-blue-600 mt-1 ml-6">
-                                  📍 {activity.location || '未知位置'} (lat: {activity.lat ?? 'N/A'}, lng: {activity.lng ?? 'N/A'})
-                              </p>
-                            </div>
-                           ) : null // 如果 activity 无效则不渲染
-                        ))
-                      ) : (
-                         <p className="text-sm text-muted-foreground ml-6">当天无活动安排。</p>
-                      )}
+                               ) : null
+                            ))
+                          ) : ( <p className="text-sm text-muted-foreground ml-6">当天无活动安排。</p> )}
+                        </div>
+                        {/* 餐饮建议 */}
+                        <div className="pt-3 border-t border-dashed mt-4">
+                          <h4 className="font-semibold flex items-center text-lg text-slate-700">
+                               <Utensils className="h-5 w-5 mr-2 text-orange-500" />
+                               餐饮建议:
+                          </h4>
+                          <ul className="list-disc list-inside text-sm text-muted-foreground pl-4 mt-2 space-y-1">
+                            <li>早餐: {day.meals?.breakfast || '未推荐'}</li>
+                            <li>午餐: {day.meals?.lunch || '未推荐'}</li>
+                            <li>晚餐: {day.meals?.dinner || '未推荐'}</li>
+                          </ul>
+                        </div>
+                      </CardContent>
+                    </Card>
+                   ) : null
+                ))
+              ) : (
+                <p className="text-muted-foreground">未能加载每日行程详情。</p>
+              )}
+            </div>
+          </div>
+          {/* --- 左侧栏结束 --- */}
+
+
+          {/* --- (新!) 右侧栏: 地图 + 预算 (粘性定位) --- */}
+          <div className="md:col-span-2 space-y-8">
+            {/* (新!) 添加粘性定位包装器，top-24 为顶部留白 (可调整) */}
+            <div className="sticky top-24">
+                
+                {/* 1. 地图 */}
+                <DynamicPlanMap planData={planData} />
+
+                {/* 2. 记账器和开销列表 (移到这里) */}
+                <div className="grid grid-cols-1 gap-8 pt-8"> {/* 统一使用 pt-8 */}
+                    {/* 记账器区域 - 显示预算 */}
+                    <div className="space-y-4">
+                      <h2 className="text-xl font-semibold flex items-center text-slate-700 mb-2">
+                           <Wallet className="h-5 w-5 mr-2 text-red-500" />
+                           预算与记账
+                      </h2>
+                      <Card className={`shadow-md border-2 ${remainingBudget < 0 ? "border-red-500 bg-red-50/50" : "border-green-500 bg-green-50/50"}`}>
+                         <CardContent className="p-4">
+                             <div className="flex justify-between items-center pb-2 border-b border-gray-200">
+                                <p className="text-sm font-medium text-slate-600">预估总预算 (CNY)</p>
+                                <p className="text-lg font-bold text-slate-800">{estimatedTotalCNY.toLocaleString('zh-CN')}</p>
+                             </div>
+                             <div className="flex justify-between items-center pt-2">
+                                <p className="text-sm font-medium text-slate-600">剩余余额 (CNY)</p>
+                                <p className="text-xl font-extrabold" style={{ color: remainingBudget < 0 ? '#dc2626' : '#10b981' }}>
+                                    {remainingBudget.toLocaleString('zh-CN')}
+                                </p>
+                             </div>
+                         </CardContent>
+                      </Card>
+                      <ExpenseLogger planId={plan.id} />
                     </div>
-                    {/* 餐饮建议 */}
-                    <div className="pt-3 border-t border-dashed mt-4">
-                      <h4 className="font-semibold flex items-center text-lg text-slate-700">
-                           <Utensils className="h-5 w-5 mr-2 text-orange-500" />
-                           餐饮建议:
-                      </h4>
-                      <ul className="list-disc list-inside text-sm text-muted-foreground pl-4 mt-2 space-y-1">
-                        <li>早餐: {day.meals?.breakfast || '未推荐'}</li>
-                        <li>午餐: {day.meals?.lunch || '未推荐'}</li>
-                        <li>晚餐: {day.meals?.dinner || '未推荐'}</li>
-                      </ul>
+                    {/* 开销列表区域 */}
+                    <div className="space-y-4">
+                      <h2 className="text-2xl font-semibold flex items-center text-primary">
+                          <ListChecks className="h-6 w-6 mr-2" />
+                          开销详情
+                      </h2>
+                      <p className="text-lg font-medium">已记总开销: {totalSummary || '0.00'}</p>
+                      <ExpenseTableWrapper expenses={expenses} planId={plan.id} />
                     </div>
-                  </CardContent>
-                </Card>
-               ) : null // 如果 day 无效则不渲染
-            ))
-          ) : (
-            <p className="text-muted-foreground">未能加载每日行程详情。</p>
-          )}
-        </div>
+                </div>
+                {/* --- 右侧栏内容结束 --- */}
+                
+            </div>
+          </div>
+          {/* --- 右侧栏结束 --- */}
+
       </div>
+      {/* --- (新!) 双栏布局容器结束 --- */}
+
+
+      {/* (已移动!) 每日行程部分已被移到左侧栏 */}
 
     </div>
   );
