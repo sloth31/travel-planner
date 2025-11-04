@@ -1,39 +1,45 @@
 // 文件: app/api/log-expense/route.ts
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import OpenAI from 'openai';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 
-// 1. (修复) 
-//    不要在这里初始化客户端！
-// const openai = new OpenAI({ ... });
-
-// 2. (修复) 
-//    这个 Prompt 可以保留在顶层，它只是一个字符串
+// --- (修改!) LLM 实体提取 Prompt：新增分类 ---
 const SYSTEM_PROMPT = `
-你是一个记账助手。
-根据用户的输入（例如：“晚餐花了3000日元”或“打车 50 块钱”），你必须只返回一个符合以下 TypeScript 接口的 JSON 对象。
+你是一个专业的旅行记账助手。
+根据用户的输入，你必须只返回一个符合以下 TypeScript 接口的 JSON 对象。
 不要有任何其他解释或开场白。
 
-interface IExpense {
-  item: string; // 事项, 例如 "晚餐", "打车", "纪念品"
-  amount: number; // 金额, 必须是数字
-  currency: string; // 货币, 例如 "CNY", "JPY", "USD"。如果是 "元" 或 "块", 默认为 "CNY"。
+enum ExpenseCategory {
+    Food = 'Food', // 餐饮
+    Transport = 'Transport', // 交通 (本地交通, 打车等)
+    Accommodation = 'Accommodation', // 住宿
+    Activities = 'Activities', // 门票, 活动
+    Shopping = 'Shopping', // 购物, 纪念品
+    Other = 'Other', // 其他杂项开销
 }
 
-// ... (示例)
+interface IExpense {
+  item: string; // 事项, 例如 "晚餐", "高铁票", "纪念品"
+  amount: number; // 金额, 必须是数字
+  currency: string; // 货币, 例如 "CNY", "JPY", "USD"。
+  category: ExpenseCategory; // (新!) 必须是上面的枚举类型之一
+}
 
-// 再次强调：只返回 JSON 对象。
+请根据用户提供的 'item' 和 'amount' 来推断并分配一个最合适的 'category'。
 `;
+// --- Prompt 结束 ---
 
-export async function POST(request: Request) {
-  // 3. (修复) 
-  //    在这里（函数内部）惰性初始化 OpenAI 客户端
-  //    只有当这个 API 被调用时，这段代码才会运行
+
+export async function POST(request: NextRequest) {
+  console.log('--- [POST /api/log-expense] Received request for classification ---');
+    
+  // 1. 惰性初始化 OpenAI 客户端
   const API_KEY = process.env.DASHSCOPE_API_KEY;
   if (!API_KEY) {
+    console.error('POST /api/log-expense: DASHSCOPE_API_KEY is not set');
     return NextResponse.json(
-      { error: 'DASHSCOPE_API_KEY is not set' },
+      { error: 'LLM API Key not configured' },
       { status: 500 }
     );
   }
@@ -47,14 +53,14 @@ export async function POST(request: Request) {
   const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
   try {
-    // 身份验证
+    // 2. 身份验证
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const user_id = session.user.id;
 
-    // 获取前端传来的 语音文本 和 计划ID
+    // 3. 获取前端传来的 识别文本 和 计划ID
     const { text, plan_id } = await request.json();
     if (!text || !plan_id) {
       return NextResponse.json(
@@ -62,8 +68,10 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    console.log(`Received text: "${text}", Plan ID: ${plan_id}`);
 
-    // 调用 LLM 提取实体
+
+    // 4. 调用 LLM 提取实体和分类
     const completion = await openai.chat.completions.create({
       model: 'qwen-turbo', // 使用更便宜的 turbo 模型
       messages: [
@@ -75,17 +83,20 @@ export async function POST(request: Request) {
     const messageContent = completion.choices[0].message.content;
     if (!messageContent) { throw new Error('Empty response from AI'); }
     
-    // 清理并解析 JSON
+    // 5. 清理并解析 JSON (新!) 包含 category
     const jsonResponse = messageContent.replace(/```json\n?|\n?```/g, '').trim();
-    const { item, amount, currency } = JSON.parse(jsonResponse);
+    // 确保解析时能接收 item, amount, currency, category
+    const { item, amount, currency, category } = JSON.parse(jsonResponse); 
 
-    // 存入数据库
+
+    // 6. 存入数据库 (新!) 插入 category
     const { error: insertError } = await supabase.from('expenses').insert({
       user_id: user_id,
       plan_id: plan_id,
       item: item,
       amount: amount,
       currency: currency,
+      category: category, // (新!) 插入 category
       original_text: text, // 存入原始文本
     });
 
@@ -97,12 +108,14 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ success: true, logged: { item, amount, currency } });
+    // 7. 返回给前端 (新!) 返回 category
+    return NextResponse.json({ success: true, logged: { item, amount, currency, category } });
 
-  } catch (error) {
-    console.error('Error logging expense:', error);
+  } catch (error: any) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error logging expense:', errorMessage);
     return NextResponse.json(
-      { error: 'Failed to process expense' },
+      { error: `Failed to process expense: ${errorMessage}` },
       { status: 500 }
     );
   }

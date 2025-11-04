@@ -1,3 +1,5 @@
+/* 文件: app/globals.css */
+
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -51,8 +53,11 @@
   --card-foreground: oklch(0.129 0.042 264.695);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.129 0.042 264.695);
-  --primary: oklch(0.208 0.042 265.755);
-  --primary-foreground: oklch(0.984 0.003 247.858);
+  
+  /* --- 主题色修改: 偏深靛蓝 (Indigo 600/700) --- */
+  --primary: oklch(0.35 0.15 285); /* 深靛蓝色 (接近 Indigo 700) */
+  --primary-foreground: oklch(0.984 0.003 247.858); /* 亮白文本 */
+
   --secondary: oklch(0.968 0.007 247.896);
   --secondary-foreground: oklch(0.208 0.042 265.755);
   --muted: oklch(0.968 0.007 247.896);
@@ -85,8 +90,11 @@
   --card-foreground: oklch(0.984 0.003 247.858);
   --popover: oklch(0.208 0.042 265.755);
   --popover-foreground: oklch(0.984 0.003 247.858);
-  --primary: oklch(0.929 0.013 255.508);
-  --primary-foreground: oklch(0.208 0.042 265.755);
+  
+  /* --- 深色模式主题色修改: Indigo 500/600 --- */
+  --primary: oklch(0.6 0.15 285); /* 较亮的靛蓝 (接近 Indigo 500) */
+  --primary-foreground: oklch(0.208 0.042 265.755); /* 深色文本 */
+  
   --secondary: oklch(0.279 0.041 260.031);
   --secondary-foreground: oklch(0.984 0.003 247.858);
   --muted: oklch(0.279 0.041 260.031);

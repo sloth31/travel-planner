@@ -1,97 +1,107 @@
 // 文件: app/api/plan/route.ts
-import { NextResponse, NextRequest } from 'next/server'; // 使用 NextRequest
+import { NextResponse, NextRequest } from 'next/server';
 import OpenAI from 'openai';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 
-// 定义偏好类型 (与 /api/user/preferences 共享)
+// 定义偏好类型 (保持不变)
 interface UserPreferences {
     styles?: string[];
     cuisines?: string[];
     transport?: string[];
-    // 可以根据需要添加其他偏好字段
 }
 
-// --- 核心 System Prompt (保持不变) ---
+// --- 核心 System Prompt (包含新的预算和交通结构) ---
 const SYSTEM_PROMPT = `
-你是一个专业的旅行规划师。
-根据用户的请求（目的地、天数、预算、偏好等），你必须只返回一个符合以下 TypeScript 接口的 JSON 对象，不要有任何其他解释或开场白。
+你是一个专业的旅行规划师，你的首要任务是根据用户的请求和偏好，生成一个详细且经济合理的旅行计划。
+你必须只返回一个符合以下 TypeScript 接口的 JSON 对象，不要有任何其他解释或开场白。
 
 interface IActivity {
   name: string;
   description: string;
-  location: string; // 地点名称，例如 "秋叶原"
-  lat: number;       // 纬度
-  lng: number;       // 经度
+  location: string;
+  lat: number;
+  lng: number;
 }
 
 interface IDailyPlan {
   day: number;
-  theme: string; // 例如: "动漫与科技"
+  theme: string;
   activities: IActivity[];
   meals: {
-    breakfast: string; // 推荐的餐厅或类型
+    breakfast: string;
     lunch: string;
     dinner: string;
   };
 }
 
+//  定义交通结构
+interface ITransportDetail {
+    method: 'Flight' | 'HSR' | 'Train' | 'Bus' | 'Self-Drive'; // 交通方式
+    estimated_cost: number; // 预估票价（不需严格精确，以人民币 CNY 计，请取整）
+    details: string; // 具体的建议，如“建议预定最早的航班”
+}
+
+//  IPlan 接口包含新的预算和交通字段
 interface IPlan {
-  title: string; // 例如: "东京5日美食动漫探索之旅"
+  title: string;
   budget_overview: string; // 对预算的简短分析
   daily_plan: IDailyPlan[];
+  
+  //  总体预算预估
+  estimated_budget: {
+      total_cny: number; // 总体预估花费总计 (CNY, 请取整)
+      accommodation: number; // 住宿费预估 (CNY, 请取整)
+      flights_and_trains: number; // 往返交通费预估 (CNY, 请取整)
+      local_transport: number; // 当地交通费预估 (CNY, 请取整)
+      food_and_drink: number; // 餐饮费预估 (CNY, 请取整)
+      activities_and_tickets: number; // 门票/活动费预估 (CNY, 请取整)
+  };
+  
+  //  去程和回程交通规划
+  initial_transport: {
+      to_destination: ITransportDetail; // 去程细节
+      from_destination: ITransportDetail; // 回程细节
+  }
 }
 
 // 确保所有地点都有准确的 lat 和 lng。
 // 再次强调：只返回 JSON 对象。
 `;
 
-/**
- * 辅助函数：将用户偏好格式化为适合添加到 LLM Prompt 的字符串。
- * @param preferences - 从 Supabase 读取的用户偏好对象。
- * @returns 格式化后的字符串，如果无偏好则返回空字符串。
- */
+// 辅助函数 formatPreferencesForLLM (略微修改，提醒交通规划)
 function formatPreferencesForLLM(preferences: UserPreferences | null | undefined): string {
     if (!preferences || Object.keys(preferences).length === 0) {
-        return ""; // 没有偏好或对象为空
+        return "";
     }
 
-    const sections: string[] = []; // 用于存储各个偏好部分的字符串
-
-    // 格式化旅行风格
+    const sections: string[] = [];
     if (preferences.styles && preferences.styles.length > 0) {
         sections.push(`旅行风格偏好: ${preferences.styles.join(', ')}`);
     }
-    // 格式化餐饮偏好
     if (preferences.cuisines && preferences.cuisines.length > 0) {
         sections.push(`餐饮偏好: ${preferences.cuisines.join(', ')}`);
     }
-    // 格式化交通偏好
     if (preferences.transport && preferences.transport.length > 0) {
-        sections.push(`交通偏好: ${preferences.transport.join(', ')}`);
+        sections.push(`当地交通偏好: ${preferences.transport.join(', ')}`);
     }
-    // 在这里可以添加其他偏好字段的格式化，例如：
-    // if (preferences.other && preferences.other.includes('with_kids')) {
-    //     sections.push("同行者包含孩子，请安排适合亲子的活动");
-    // }
 
-    // 如果有任何偏好被格式化，则添加引导语句
     if (sections.length > 0) {
         return "\n\n请在规划行程时务必仔细考虑并体现以下已保存的用户偏好：\n- " + sections.join('\n- ');
     }
 
-    return ""; // 没有有效的偏好内容
+    return "";
 }
 
 
 // --- API Route Handler ---
-export async function POST(request: NextRequest) { // 使用 NextRequest
-    console.log('--- [POST /api/plan] Received request ---');
+export async function POST(request: NextRequest) {
+    console.log('--- [POST /api/plan v3] Received request ---');
 
-    // 1. 惰性初始化 OpenAI 客户端
+    // 1. 惰性初始化 OpenAI 客户端 (保持不变)
     const API_KEY = process.env.DASHSCOPE_API_KEY;
     if (!API_KEY) {
-        console.error('POST /api/plan: DASHSCOPE_API_KEY not set!');
+        console.error('POST /api/plan: LLM API Key not set!');
         return NextResponse.json({ error: 'LLM API Key not configured' }, { status: 500 });
     }
     const openai = new OpenAI({
@@ -99,125 +109,108 @@ export async function POST(request: NextRequest) { // 使用 NextRequest
         baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     });
 
-    // 2. 获取 Supabase 客户端并验证用户 Session
+    // 2. 获取 Session, UserId (保持不变)
     const cookieStore = cookies();
     const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
     let session, userId;
     try {
+        /* ... 认证逻辑 ... */
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
         if (!data.session) throw new Error('User not authenticated');
         session = data.session;
         userId = session.user.id;
-        
-        console.log(`POST /api/plan: User ${userId} authenticated.`);
+        console.log(`POST /api/plan v3: User ${userId} authenticated.`);
     } catch (authError: any) {
-        console.error('POST /api/plan: Authentication error:', authError.message);
+        console.error('POST /api/plan v3: Authentication error:', authError.message);
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    let userPreferences: UserPreferences | undefined; // 声明变量用于存储偏好
-   try {
-       // --- (修改!) 从 user_preferences 表读取偏好 ---
-        console.log(`POST /api/plan v2: Fetching preferences for user ${userId} from table...`);
+
+    let userPreferences: UserPreferences | undefined;
+    let originalPrompt: string;
+    let departureCity: string | undefined; //  出发城市变量
+
+    try {
+        // 3. 获取前端发送的原始 Prompt 和其他数据
+        const body = await request.json();
+        originalPrompt = body.prompt;
+        departureCity = body.departureCity; //  从 body 中获取出发城市
+
+        if (!originalPrompt || typeof originalPrompt !== 'string') {
+             return NextResponse.json({ error: 'Prompt is missing or not a string.' }, { status: 400 });
+        }
+        if (!departureCity || typeof departureCity !== 'string') {
+             // (重要!) 如果没有出发地，LLM 无法规划往返交通
+             return NextResponse.json({ error: '请提供出发城市，以便规划往返交通。' }, { status: 400 });
+        }
+        console.log('POST /api/plan v3: Departure city:', departureCity);
+        console.log('POST /api/plan v3: Original prompt:', originalPrompt);
+
+
+        // 4. 读取用户偏好 (从 user_preferences 表读取，保持不变)
         const { data: preferenceData, error: preferenceError } = await supabase
             .from('user_preferences')
             .select('preferences')
             .eq('user_id', userId)
-            .maybeSingle(); // 使用 maybeSingle 允许没有找到记录 (返回 null)
+            .maybeSingle();
 
-        if (preferenceError) {
-            // 如果查询出错，记录错误但继续执行（不使用偏好）
-            console.error(`POST /api/plan v2: Error fetching preferences for user ${userId}:`, preferenceError.message);
-            // 这里不抛出错误，允许在没有偏好的情况下继续
-            userPreferences = {}; // 设为空对象
-        } else {
-            // 如果查询成功 (即使返回 null)，获取 preferences 字段
-            userPreferences = preferenceData?.preferences || {}; // 获取数据或为空对象
-            console.log(`POST /api/plan v2: Preferences found for user ${userId}:`, userPreferences);
-        }
-        // 3. 获取前端发送的原始 Prompt
-        let originalPrompt: string;
-        try {
-             const body = await request.json();
-             originalPrompt = body.prompt;
-             if (!originalPrompt || typeof originalPrompt !== 'string') {
-                 throw new Error('Prompt is missing or not a string.');
-             }
-             console.log('POST /api/plan: Received original prompt:', originalPrompt);
-        } catch (parseError: any) {
-             console.error('POST /api/plan: Failed to parse request body:', parseError.message);
-             return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
-        }
-
-
-        // 4. (新!) 格式化偏好并注入 Prompt
+        userPreferences = preferenceData?.preferences || {};
         const preferenceString = formatPreferencesForLLM(userPreferences);
-        const finalUserPrompt = originalPrompt + preferenceString; // 将偏好字符串追加到原始请求后
-        console.log("POST /api/plan: Final prompt being sent to LLM:\n", finalUserPrompt); // 打印最终 Prompt
 
 
-        // 5. 调用 LLM
-        console.log("POST /api/plan: Calling LLM...");
+        // 5. 格式化并注入 Prompt
+        const transportInstruction = `\n\n用户将从 ${departureCity} 出发前往目的地。请根据此信息在 JSON 的 'initial_transport' 字段中，为去程和回程提供合理的交通方式（航班/高铁等）和预估票价（CNY）。`;
+        
+        const finalUserPrompt = originalPrompt + preferenceString + transportInstruction; // 注入偏好和交通指令
+        console.log("POST /api/plan v3: Final prompt being sent to LLM:\n", finalUserPrompt);
+
+
+        // 6. 调用 LLM (保持不变)
         const completion = await openai.chat.completions.create({
-            model: 'qwen-plus', // 或您选择的模型
+            model: 'qwen-plus',
             messages: [
                 { role: 'system', content: SYSTEM_PROMPT },
-                { role: 'user', content: finalUserPrompt }, // 使用包含偏好的 Prompt
+                { role: 'user', content: finalUserPrompt },
             ],
-            // temperature: 0.7, // 可以调整创造性
         });
-        console.log("POST /api/plan: LLM call completed.");
 
-        // 6. 解析和清理 LLM 响应
+
+        // 7. 解析、保存和返回 (保持不变)
+        /* ... 解析响应，获取 planData ... */
         const messageContent = completion.choices[0].message.content;
         if (!messageContent) { throw new Error('Empty response from LLM'); }
         const jsonResponse = messageContent.replace(/```json\n?|\n?```/g, '').trim();
         let planData;
         try {
             planData = JSON.parse(jsonResponse);
-            // (可选) 在这里可以添加对 planData 结构的验证
-            if (!planData.title || !Array.isArray(planData.daily_plan)) {
-                 throw new Error("LLM response is missing required fields (title, daily_plan).");
+            // 简单验证关键结构是否存在
+            if (!planData.title || !Array.isArray(planData.daily_plan) || !planData.estimated_budget || !planData.initial_transport) {
+                 throw new Error("LLM response is missing required budget/transport fields.");
             }
         } catch (parseError: any) {
-            console.error("POST /api/plan: Failed to parse LLM JSON response:", parseError.message);
-            console.error("Original LLM response content:", messageContent); // 记录原始响应以便调试
+            console.error("POST /api/plan v3: Failed to parse LLM JSON response:", parseError.message);
             throw new Error("AI 返回了无效的 JSON 格式，请稍后重试或调整请求。");
         }
 
 
-        // 7. 保存到数据库
-        console.log(`POST /api/plan: Saving plan "${planData.title}" to database for user ${userId}...`);
+        // 8. 保存到数据库并返回 ID (保持不变)
         const { data: newPlan, error: insertError } = await supabase
             .from('plans')
             .insert({
                 user_id: userId,
                 title: planData.title || 'Untitled Plan',
-                original_prompt: originalPrompt, // 保存用户输入的原始 prompt
+                original_prompt: originalPrompt,
                 plan_data: planData,
-                // (可选) 记录当时使用的偏好快照
-                // user_preferences_snapshot: userPreferences || {},
             })
-            .select('id') // 获取新插入记录的 ID
-            .single(); // 确认只插入了一条
+            .select('id').single();
 
-        if (insertError) {
-            console.error('POST /api/plan: Supabase insert error:', insertError);
-            throw new Error(`Database error: ${insertError.message}`); // 抛出错误以便 catch 处理
-        }
-        if (!newPlan) {
-            // 理论上 insert 成功后不会发生，但作为保险
-            throw new Error("Failed to retrieve new plan ID after saving.");
-        }
-        console.log(`POST /api/plan: Plan saved successfully with ID: ${newPlan.id}`);
+        if (insertError) { throw new Error(`Database error: ${insertError.message}`); }
+        if (!newPlan) { throw new Error("Failed to retrieve new plan ID after saving."); }
 
-        // 8. 返回包含新 ID 的结果给前端
         return NextResponse.json({ ...planData, id: newPlan.id });
 
     } catch (error: any) {
-        // 统一错误处理
-        console.error('POST /api/plan: Error during plan generation or saving:', error.message);
-        // 向客户端返回错误信息
+        console.error('POST /api/plan v3: Error during plan generation or saving:', error.message);
         return NextResponse.json({ error: `处理请求时发生错误: ${error.message}` }, { status: 500 });
     }
 }

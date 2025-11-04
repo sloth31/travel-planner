@@ -6,13 +6,13 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { ExpenseLogger } from '@/components/ExpenseLogger';
-import { ExpenseTable } from '@/components/ExpenseTable';
+import { ExpenseTableWrapper } from '@/components/ExpenseTableWrapper';
 import { PlanSubscriber } from '@/components/PlanSubscriber'; // 或者 PlanRefresher
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'; // 导入 Card 用于每日行程
 // 导入所有需要的图标
 import {
     ArrowLeft, MapPin, Utensils, CalendarDays, Wallet, ListChecks, Navigation,
-    Landmark, Briefcase, ShoppingCart, Trees, Sun, ChefHat, Tv, Plane // 添加 Plane 图标
+    Landmark, Briefcase, ShoppingCart, Trees, Sun, ChefHat, Tv, Plane, DollarSign // 添加 Plane 图标
 } from 'lucide-react';
 
 // 动态导入 PlanMap，禁用 SSR 并添加加载状态
@@ -27,6 +27,27 @@ const DynamicPlanMap = dynamic(
         )
     }
 );
+// 类型定义：活动, 每日计划, 完整计划 (新增预算和交通类型)
+interface ITransportDetail { method: 'Flight' | 'HSR' | 'Train' | 'Bus' | 'Self-Drive'; estimated_cost: number; details: string; }
+interface IPlanData {
+  title: string;
+  budget_overview: string;
+  daily_plan: IDailyPlan[];
+  // (新!) 预算结构
+  estimated_budget: {
+      total_cny: number;
+      accommodation: number;
+      flights_and_trains: number;
+      local_transport: number;
+      food_and_drink: number;
+      activities_and_tickets: number;
+  };
+  // (新!) 交通结构
+  initial_transport: {
+      to_destination: ITransportDetail;
+      from_destination: ITransportDetail;
+  }
+}
 
 // 类型定义：活动
 interface IActivity {
@@ -60,7 +81,8 @@ interface IExpense {
   created_at: string;
   item: string;
   amount: number;
-  currency: string;
+   currency: string;
+   category: string;
 }
 
 // 服务器端函数：获取行程数据
@@ -92,7 +114,7 @@ async function getPlan(supabase: any, id: string): Promise<{
 async function getExpenses(supabase: any, planId: string): Promise<IExpense[]> {
   const { data, error } = await supabase
     .from('expenses')
-    .select('id, created_at, item, amount, currency')
+    .select('id, created_at, item, amount, currency,category')
     .eq('plan_id', planId) // 筛选出当前 plan 的
     .order('created_at', { ascending: false }); // 按时间倒序
 
@@ -101,7 +123,11 @@ async function getExpenses(supabase: any, planId: string): Promise<IExpense[]> {
     return []; // 出错时返回空数组
   }
   // 如果 data 为 null 或 undefined (理论上 select 不会，但以防万一)，也返回空数组
-  return data || [];
+  return (data || []).map((expense:any) => ({
+      ...expense,
+      // 如果从数据库中读取的 category 为 null 或 undefined，强制设置为 'Other'
+      category: expense.category || 'Other' 
+  })) as IExpense[];;
 }
 
 // 辅助函数：尝试根据活动名称推断图标 (启发式)
@@ -127,7 +153,7 @@ function getActivityIcon(activityName: string): React.ReactNode {
         return <Tv className="h-4 w-4 mr-2 flex-shrink-0 text-purple-600" />;
      // 交通相关 - 靛蓝色系
      if (nameLower.includes('机场') || nameLower.includes('车站') || nameLower.includes('地铁') || nameLower.includes('交通') || nameLower.includes('站'))
-         return <Plane className="h-4 w-4 mr-2 flex-shrink-0 text-indigo-600" />;
+         return <Plane className="h-4 w-4 mr-2 flex-shrink-0 text-primary" />;
     // 商务/建筑 - 灰色系
     if (nameLower.includes('中心') || nameLower.includes('大厦') || nameLower.includes('塔') || nameLower.includes('观景台') || nameLower.includes('金融'))
         return <Briefcase className="h-4 w-4 mr-2 flex-shrink-0 text-slate-600" />;
@@ -176,9 +202,21 @@ export default async function PlanDetailPage({ params }: { params: { id: string 
   const planData: IPlanData = {
       title: plan.plan_data?.title || '未命名行程',
       budget_overview: plan.plan_data?.budget_overview || '无预算概述',
-      daily_plan: Array.isArray(plan.plan_data?.daily_plan) ? plan.plan_data.daily_plan : []
+     daily_plan: Array.isArray(plan.plan_data?.daily_plan) ? plan.plan_data.daily_plan : [],
+     estimated_budget: plan.plan_data?.estimated_budget || { total_cny: 0, accommodation: 0, flights_and_trains: 0, local_transport: 0, food_and_drink: 0, activities_and_tickets: 0 },
+      initial_transport: plan.plan_data?.initial_transport || { to_destination: {}, from_destination: {} },
   };
+// 1. (新!) 计算总花费 (仅 CNY, 因为预算也是 CNY)
+  const spentTotalCNY = expenses
+    .filter(e => e.currency === 'CNY')
+    .reduce((sum, e) => sum + e.amount, 0);
 
+  // 2. (新!) 获取预估总预算 (CNY)
+  const estimatedTotalCNY = planData.estimated_budget.total_cny || 0;
+
+  // 3. (新!) 计算剩余预算
+   const remainingBudget = estimatedTotalCNY - spentTotalCNY;
+   
   // 按货币分组计算总开销
   const expensesByCurrency = expenses.reduce((acc, expense) => {
     const currency = expense.currency || 'UNKNOWN';
@@ -218,25 +256,76 @@ export default async function PlanDetailPage({ params }: { params: { id: string 
         <p className="text-sm text-gray-500 mt-4 italic">原始请求: "{plan.original_prompt || 'N/A'}"</p>
       </header>
 
-
+{/* 5. (新!) 往返交通和预估预算摘要 */}
+      <Card className="shadow-md bg-white/70">
+          <CardHeader>
+              <CardTitle className="text-xl font-semibold flex items-center text-sky-600">
+                  <Plane className="h-5 w-5 mr-2" />
+                  旅行交通与财务摘要
+              </CardTitle>
+              <CardDescription>
+                  {/* 预估总预算 */}
+                  <div className="mt-2 text-lg font-medium text-slate-700 flex items-center">
+                      <DollarSign className="h-5 w-5 mr-1 text-green-600" />
+                      预估总预算: {estimatedTotalCNY.toLocaleString('zh-CN')} CNY
+                  </div>
+              </CardDescription>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              {/* 去程交通 */}
+              <div>
+                  <h4 className="font-semibold text-slate-600">去程 ({planData.initial_transport.to_destination?.method || 'N/A'})</h4>
+                  <p className="text-muted-foreground">{planData.initial_transport.to_destination?.details || '未规划'}</p>
+                  <p className="text-green-500 font-medium">预估费用: {planData.initial_transport.to_destination?.estimated_cost ? `${planData.initial_transport.to_destination.estimated_cost} CNY` : 'N/A'}</p>
+              </div>
+              {/* 回程交通 */}
+              <div>
+                  <h4 className="font-semibold text-slate-600">回程 ({planData.initial_transport.from_destination?.method || 'N/A'})</h4>
+                  <p className="text-muted-foreground">{planData.initial_transport.from_destination?.details || '未规划'}</p>
+                  <p className="text-green-500 font-medium">预估费用: {planData.initial_transport.from_destination?.estimated_cost ? `${planData.initial_transport.from_destination.estimated_cost} CNY` : 'N/A'}</p>
+              </div>
+          </CardContent>
+      </Card>
       {/* 地图 */}
       <DynamicPlanMap planData={planData} />
 
 
-      {/* 记账器和开销列表 */}
+  {/* 记账器和开销列表 */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
-        {/* 记账器 */}
+        {/* 1. (左侧) 记账器区域 - 显示预算余额 */}
         <div className="space-y-4">
+          <h2 className="text-xl font-semibold flex items-center text-slate-700 mb-2">
+               <Wallet className="h-5 w-5 mr-2 text-red-500" />
+               预算与记账
+          </h2>
+          <Card className={`shadow-md border-2 ${remainingBudget < 0 ? "border-red-500 bg-red-50/50" : "border-green-500 bg-green-50/50"}`}> {/* 根据余额显示颜色 */}
+             <CardContent className="p-4">
+                 <div className="flex justify-between items-center pb-2 border-b border-gray-200">
+                    <p className="text-sm font-medium text-slate-600">预估总预算 (CNY)</p>
+                    <p className="text-lg font-bold text-slate-800">{estimatedTotalCNY.toLocaleString('zh-CN')}</p>
+                 </div>
+                 
+                 <div className="flex justify-between items-center pt-2">
+                    <p className="text-sm font-medium text-slate-600">剩余余额 (CNY)</p>
+                    <p className="text-xl font-extrabold" style={{ color: remainingBudget < 0 ? '#dc2626' : '#10b981' }}> {/* 使用 Tailwind 颜色 Hex 值 */}
+                        {remainingBudget.toLocaleString('zh-CN')}
+                    </p>
+                 </div>
+             </CardContent>
+          </Card>
           <ExpenseLogger planId={plan.id} />
         </div>
-        {/* 开销列表 */}
+        
+        {/* 2. (右侧) 开销列表区域 - 优化 UI */}
         <div className="space-y-4">
           <h2 className="text-2xl font-semibold flex items-center text-primary">
               <ListChecks className="h-6 w-6 mr-2" />
               开销详情
           </h2>
-          <p className="text-lg font-medium">总计: {totalSummary || '0.00'}</p>
-          <ExpenseTable expenses={expenses} planId={plan.id} />
+          <p className="text-lg font-medium">已记总开销: {totalSummary || '0.00'}</p>
+          
+          {/* 3. (新!) 统一列表 UI 优化和筛选功能 */}
+          <ExpenseTableWrapper expenses={expenses} planId={plan.id} /> {/* (新!) 使用一个包裹组件来处理滚动和筛选 */}
         </div>
       </div>
 

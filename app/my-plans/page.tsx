@@ -45,7 +45,7 @@ export default async function MyPlansPage() {
   return (
     <div className="max-w-3xl mx-auto p-8 md:p-12">
       <header className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">我的行程</h1>
+        <h1 className="text-3xl font-bold ">我的行程</h1>
         <Button asChild variant="outline">
           <Link href="/">返回主页</Link>
         </Button>

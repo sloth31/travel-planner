@@ -21,14 +21,59 @@ interface IExpense {
   created_at: string;
   item: string;
   amount: number;
-  currency: string;
+   currency: string;
+   category: string;
 }
 
 interface ExpenseTableProps {
   expenses: IExpense[]; // 接收从服务器获取的开销数据
   planId: string; // (可选，如果未来有需要)
 }
+function getCategoryTag(category: string): React.ReactNode {
+    const baseClasses = "inline-block text-xs font-semibold px-2 py-0.5 rounded-full capitalize";
 
+    // --- (关键修复!) 规范化类别名称 ---
+    const normalizedCategory = category.trim().toLowerCase(); // 清除空格并转为小写
+    // --- 修复结束 ---
+
+    let labelText = category || 'Other'; // 用于显示在标签上的文本
+    let classes = `${baseClasses} bg-gray-100 text-gray-700`; // 默认值
+
+    switch (normalizedCategory) {
+        case 'food': 
+            classes = `${baseClasses} bg-red-100 text-red-700`;
+            labelText = 'Food';
+            break;
+        case 'transport': 
+            classes = `${baseClasses} bg-blue-100 text-blue-700`;
+            labelText = 'Transport';
+            break;
+        case 'accommodation': 
+            classes = `${baseClasses} bg-yellow-100 text-yellow-700`;
+            labelText = 'Accommodation';
+            break;
+        case 'activities': 
+            classes = `${baseClasses} bg-green-100 text-green-700`;
+            labelText = 'Activities';
+            break;
+        case 'shopping': 
+            classes = `${baseClasses} bg-purple-100 text-purple-700`;
+            labelText = 'Shopping';
+            break;
+        case 'other': 
+             classes = `${baseClasses} bg-slate-100 text-slate-700`;
+             labelText = 'Other';
+             break;
+        default: 
+            // 如果 LLM 返回了无法识别的分类字符串，使用 'Unknown'
+            classes = `${baseClasses} bg-gray-100 text-gray-700`;
+            labelText = 'Unknown';
+            break;
+    }
+    
+    // (修复) 使用 labelText 作为标签内容，但保留 capitalize 样式
+    return <span className={classes}>{labelText}</span>;
+}
 export function ExpenseTable({ expenses, planId }: ExpenseTableProps) {
   const router = useRouter();
   const [deletingId, setDeletingId] = useState<string | null>(null); // 记录正在删除的 ID
@@ -78,44 +123,43 @@ export function ExpenseTable({ expenses, planId }: ExpenseTableProps) {
       )}
 
       {/* 表格本身 */}
-      <div className="border rounded-lg max-h-96 overflow-y-auto">
+
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>事项</TableHead>
-              <TableHead>金额</TableHead>
-              <TableHead>时间</TableHead>
-              <TableHead className="text-right">操作</TableHead> {/* (新) 添加操作列 */}
+              <TableHead className="w-[35%]">事项</TableHead>
+              <TableHead className="w-[20%]">类别</TableHead> {/* (新!) 类别列 */}
+              <TableHead className="w-[20%]">金额</TableHead>
+              <TableHead className="w-[25%] text-right">时间 / 操作</TableHead> {/* (修改) 合并操作列 */}
             </TableRow>
           </TableHeader>
           <TableBody>
             {expenses.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center"> {/* (修改) colSpan 改为 4 */}
+                <TableCell colSpan={4} className="text-center">
                   暂无开销记录
                 </TableCell>
               </TableRow>
             ) : (
               expenses.map((expense) => (
                 <TableRow key={expense.id}>
-                  <TableCell>{expense.item}</TableCell>
+                  <TableCell className="font-medium text-sm">{expense.item}</TableCell>
+                  <TableCell>{getCategoryTag(expense.category)}</TableCell> {/* (新!) 显示类别标签 */}
                   <TableCell>{expense.amount} {expense.currency}</TableCell>
-                  <TableCell>
-                    {new Date(expense.created_at).toLocaleString('zh-CN', {
-                       hour: '2-digit', minute: '2-digit'
-                    })}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {/* (新) 删除按钮 */}
+                  <TableCell className="text-right flex items-center justify-end space-x-2">
+                    <span className="text-xs text-muted-foreground flex-shrink-0">
+                      {new Date(expense.created_at).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
                     <Button
                       variant="ghost"
                       size="icon"
                       onClick={() => handleDelete(expense.id)}
-                      disabled={deletingId === expense.id} // 删除中禁用
+                      disabled={deletingId === expense.id}
                       aria-label="删除"
+                      className="h-7 w-7 flex-shrink-0" // 调整按钮大小
                     >
                       {deletingId === expense.id ? (
-                         <span className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"></span> // 简易 Loading
+                         <span className="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"></span>
                       ) : (
                          <Trash2 className="h-4 w-4 text-destructive" />
                       )}
@@ -127,6 +171,6 @@ export function ExpenseTable({ expenses, planId }: ExpenseTableProps) {
           </TableBody>
         </Table>
       </div>
-    </div>
+   
   );
 }

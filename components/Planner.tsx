@@ -8,48 +8,51 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Mic } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // 引入 Alert
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Input } from '@/components/ui/input'; // 引入 Input 
+import { Label } from '@/components/ui/label'; // 引入 Label
 
 
 export function Planner() {
   const router = useRouter();
   const [prompt, setPrompt] = useState('');
-  const [isLoading, setIsLoading] = useState(false); // 用于生成行程的 Loading
+  const [departureCity, setDepartureCity] = useState(''); // (新!) 出发城市状态
+  const [isLoading, setIsLoading] = useState(false);
   const [sttStatus, setSttStatus] = useState<'idle' | 'recording' | 'processing_stt'>('idle');
   const [error, setError] = useState<string | null>(null);
 
-  // 用于 MediaRecorder
+  // MediaRecorder 相关
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]); // 存储音频数据块
+  const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+   const canSubmit = !isLoading && sttStatus === 'idle' && prompt.trim() && departureCity.trim();
 
-  // --- 核心函数 1: 提交行程规划请求 (保持不变) ---
+  // --- 核心函数 1: 提交行程规划请求 ---
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!departureCity.trim()) { // (新!) 检查出发城市
+        setError('请填写出发城市，以便规划往返交通。');
+        return;
+    }
+
     setIsLoading(true);
     setError(null);
 
     try {
       const response = await fetch('/api/plan', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ prompt }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, departureCity }), // (修改!) 提交 prompt 和 departureCity
       });
 
       if (!response.ok) {
         const errData = await response.json();
         throw new Error(errData.error || `Error: ${response.statusText}`);
       }
-
-      const data = await response.json(); // data 现在是 { ..., id: '...' }
-
-      if (data.id) {
-        router.push(`/plan/${data.id}`); // 跳转到详情页
-      } else {
-        throw new Error('API did not return a valid plan ID.');
-      }
+      // ... (跳转逻辑不变) ...
+      const data = await response.json();
+      if (data.id) { router.push(`/plan/${data.id}`); }
+      else { throw new Error('API did not return a valid plan ID.'); }
 
     } catch (err: any) {
       setError(err.message || '生成行程失败');
@@ -57,7 +60,6 @@ export function Planner() {
       setIsLoading(false);
     }
   };
-
   // --- 核心函数 2: 发送音频到后端 STT API ---
   // (与 ExpenseLogger 基本相同，但成功回调不同)
 const sendAudioToBackend = useCallback(async (audioBlob: Blob) => {
@@ -201,17 +203,33 @@ const startRecording = useCallback(async () => {
 return (
         <div className="space-y-6">
             <Card>
-                <CardHeader><CardTitle>AI Travel Planner</CardTitle></CardHeader>
+                <CardHeader>
+                    <CardTitle className="text-primary">AI Travel Planner</CardTitle>
+                </CardHeader>
                 <CardContent>
                     <form onSubmit={handleSubmit} className="space-y-4">
+                         {/* (新!) 出发城市输入框 */}
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="departure" className="text-right">出发城市</Label>
+                            <Input
+                                id="departure"
+                                type="text"
+                                placeholder="例如: 北京 / 上海"
+                                value={departureCity}
+                                onChange={(e) => setDepartureCity(e.target.value)}
+                                disabled={isLoading || sttStatus !== 'idle'} // 录音或生成时禁用
+                                className="col-span-3"
+                            />
+                        </div>
+
+                        {/* 行程需求输入框 */}
                         <div className="relative">
                             <Textarea
-                                placeholder="例如：“我想去上海，3天，预算 3000 元” 或点击麦克风说话"
+                                placeholder="例如：“去云南5天，预算1万，喜欢自然风光”"
                                 value={prompt}
                                 onChange={handlePromptChange}
                                 rows={3}
                                 className="pr-12"
-                                // 录音或 STT 处理时禁用
                                 disabled={sttStatus === 'recording' || sttStatus === 'processing_stt' || isLoading}
                             />
                             <Button
@@ -220,7 +238,6 @@ return (
                                 size="icon"
                                 className="absolute right-2 top-1/2 -translate-y-1/2"
                                 onClick={handleMicClick}
-                                // STT 处理或生成行程时禁用
                                 disabled={sttStatus === 'processing_stt' || isLoading}
                                 title={sttStatus === 'recording' ? "停止录音" : "开始录音"}
                             >
@@ -230,14 +247,13 @@ return (
 
                         <Button
                             type="submit"
-                            // 录音、STT 处理、生成行程 或 prompt 为空时禁用
-                            disabled={isLoading || sttStatus === 'recording' || sttStatus === 'processing_stt' || !prompt.trim()}
+                            disabled={!canSubmit} // 使用 canSubmit 变量
                         >
                             {isLoading ? '正在生成中...' : '生成行程'}
                         </Button>
                     </form>
 
-                    {sttStatus === 'processing_stt' && <p className="text-sm text-muted-foreground mt-2">正在识别语音...</p>}
+                    {sttStatus === 'processing_stt' && <p className="text-sm text-primary mt-2">正在识别语音...</p>}
                 </CardContent>
             </Card>
 

@@ -19,7 +19,49 @@ export function ExpenseLogger({ planId }: { planId: string }) {
     const [success, setSuccess] = useState<string | null>(null);
     const [textInput, setTextInput] = useState('');
     const recordingStartTimeRef = useRef<number | null>(null);
+// --- 核心函数 1: 提交文本进行分类和记账 ---
+    const submitForClassificationAndLog = useCallback(async (transcript: string) => {
+        if (!transcript || transcript.trim() === "") {
+            setError("未识别到有效内容");
+            setStatus('idle');
+            return;
+        }
+        
+        console.log("Submitting for classification and log:", transcript);
+        setStatus('processing'); // 状态：正在处理 (LLM/DB)
+        setError(null);
+        setSuccess(null);
 
+        try {
+            // (修改!) 调用 /api/log-expense 进行分类和写入
+            const response = await fetch('/api/log-expense', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                // 传递文本和 plan_id
+                body: JSON.stringify({ text: transcript, plan_id: planId }), 
+            });
+            
+            if (!response.ok) {
+                 const errData = await response.json(); throw new Error(errData.error || '记账失败');
+            }
+            
+            const result = await response.json();
+            
+            // (修改!) 适配新的返回结构: result.logged 包含 category
+            const { item, amount, currency, category } = result.logged;
+            setSuccess(`记账成功: ${item} - ${amount} ${currency} (${category})`);
+            
+            router.refresh(); // 刷新页面以更新列表
+
+        } catch (err: any) {
+            setError(err.message || '记账失败，请重试');
+        } finally {
+            setStatus('idle'); // 记账 API 调用结束
+        }
+    }, [planId, router]);
+
+    
+   
     // MediaRecorder 相关
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
@@ -66,7 +108,7 @@ export function ExpenseLogger({ planId }: { planId: string }) {
         const formData = new FormData();
         // 发送原始 Blob，让后端处理格式；文件名可以简单点
         formData.append('audio', audioBlob, `recording.${audioBlob.type.split('/')[1] || 'webm'}`);
-
+         formData.append('plan_id', planId);
         try {
             const response = await fetch('/api/stt', {
                 method: 'POST',
@@ -226,7 +268,7 @@ export function ExpenseLogger({ planId }: { planId: string }) {
 
     return (
         <Card>
-            <CardHeader><CardTitle>语音 / 文字记账 (HTTP)</CardTitle></CardHeader>
+            <CardHeader><CardTitle>语音 / 文字记账</CardTitle></CardHeader>
             <CardContent className="flex flex-col items-center gap-4">
                 <p className="text-sm text-muted-foreground">
                     {status === 'recording' ? "正在录音... 点击停止" :
@@ -265,7 +307,7 @@ export function ExpenseLogger({ planId }: { planId: string }) {
                     </Button>
                 </form>
 
-                {(status === 'processing') && <p>正在处理...</p>}
+                {(status === 'processing') && <p>正在处理分类...</p>}
 
                 {error && (<Alert variant="destructive"><AlertTitle>错误</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>)}
                 {success && (<Alert variant="default" className="text-green-700"><AlertTitle>成功</AlertTitle><AlertDescription>{success}</AlertDescription></Alert>)}
