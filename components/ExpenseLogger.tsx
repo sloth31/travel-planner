@@ -172,33 +172,14 @@ export function ExpenseLogger({ planId }: { planId: string }) {
             };
 
             recorder.onstop = () => {
-               console.log("[DEBUG recorder.onstop] Triggered!");
-               const recordingEndTime = Date.now(); // (新!) 记录结束时间
-                const duration = recordingEndTime - (recordingStartTimeRef.current || recordingEndTime);
-                recordingStartTimeRef.current = null; // 重置开始时间
-                if (duration < MIN_RECORDING_DURATION_MS) {
-                    console.warn(`Recording too short: ${duration}ms`);
-                    setError(`录音时间太短 (至少 ${MIN_RECORDING_DURATION_MS / 1000} 秒)，请重试。`);
-                    setStatus('idle'); // 回到空闲状态
-                    // 清理 stream (如果在 startRecording 中获取)
-                    if (streamRef.current) {
-                         streamRef.current.getTracks().forEach(track => track.stop());
-                         streamRef.current = null;
-                         console.log("Stopped media stream tracks due to short duration.");
-                    }
-                    return; // 阻止发送
-                }
-         
+                console.log("[DEBUG recorder.onstop] Triggered!");
                 if (audioChunksRef.current.length === 0) {
                     console.warn("No audio chunks recorded.");
-                    setStatus('idle'); // 没有录到内容，直接返回 idle
-                    return;
+                    setStatus('idle'); return;
                 }
-                // 使用正确的 MIME 类型创建 Blob
                 const audioBlob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
                 sendAudioToBackend(audioBlob); // 发送给后端
 
-                // 清理 stream
                 if (streamRef.current) {
                      streamRef.current.getTracks().forEach(track => track.stop());
                      streamRef.current = null;

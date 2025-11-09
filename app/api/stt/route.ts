@@ -231,7 +231,7 @@ export async function POST(request: NextRequest) {
         tempInputPath = path.join(os.tmpdir(), inputFileName);
         tempOutputPath = path.join(os.tmpdir(), outputFileName);
         await fs.writeFile(tempInputPath, audioBuffer);
-        const ffmpegCommand = `ffmpeg -i "${tempInputPath}" -vn -af "silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB,areverse,silenceremove=start_periods=1:start_duration=0.5:start_threshold=-50dB,areverse" -acodec pcm_s16le -ar 16000 -ac 1 -y "${tempOutputPath}"`;
+        const ffmpegCommand = `ffmpeg -i "${tempInputPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 -y "${tempOutputPath}"`;
         console.log(`Executing ffmpeg command: ${ffmpegCommand}`);
         try {
             const { stdout, stderr } = await execAsync(ffmpegCommand);
